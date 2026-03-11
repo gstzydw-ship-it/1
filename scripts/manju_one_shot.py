@@ -236,6 +236,19 @@ def _fill_prompt(row: Locator, prompt: str) -> None:
     raise RuntimeError("提示词填写失败：输入框仍为空。")
 
 
+def _ensure_prompt_persisted(row: Locator, prompt: str) -> None:
+    textarea = row.locator("textarea:visible").first
+    expected_value = prompt.strip()
+    page = row.page
+    for _ in range(3):
+        current_value = textarea.input_value(timeout=3_000).strip()
+        if current_value == expected_value:
+            return
+        _fill_prompt(row, prompt)
+        page.wait_for_timeout(2_000)
+    raise RuntimeError("提示词未成功保存在当前任务中。")
+
+
 def _open_first_frame_modal(row: Locator) -> None:
     row.locator("div.w-20.h-20.border-2.border-dashed").first.click(timeout=10_000)
 
@@ -556,6 +569,7 @@ def run_manju_one_shot(
         _snapshot(page, "after_expand.png")
 
         _fill_prompt(row, prompt)
+        _ensure_prompt_persisted(row, prompt)
         page.wait_for_timeout(1_000)
 
         baseline_img_count = row.locator("img").count()
@@ -575,6 +589,7 @@ def run_manju_one_shot(
             aspect_ratio=aspect_ratio,
             model_name=model_name,
         )
+        _ensure_prompt_persisted(row, prompt)
         _snapshot(page, "after_settings.png")
 
         baseline_video_count = row.locator("video").count()
