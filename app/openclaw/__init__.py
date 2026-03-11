@@ -1,0 +1,34 @@
+"""OpenClaw 相关导出。"""
+
+from app.openclaw.client import OpenClawClient, OpenClawMockRunner, SceneAnchorImageError, SceneAnchorReviewError
+from app.openclaw.models import (
+    AssetPlannerRequest,
+    AssetPlannerResponse,
+    CatalogAssetSummary,
+    PromptComposerRequest,
+    PromptComposerResponse,
+    PromptSuggestion,
+    SceneAnchorImageRequest,
+    SceneAnchorImageResponse,
+    SceneAnchorReviewRequest,
+    SceneAnchorReviewResponse,
+)
+from app.openclaw.service import OpenClawService
+
+__all__ = [
+    "AssetPlannerRequest",
+    "AssetPlannerResponse",
+    "CatalogAssetSummary",
+    "OpenClawClient",
+    "OpenClawMockRunner",
+    "OpenClawService",
+    "PromptComposerRequest",
+    "PromptComposerResponse",
+    "PromptSuggestion",
+    "SceneAnchorImageError",
+    "SceneAnchorImageRequest",
+    "SceneAnchorImageResponse",
+    "SceneAnchorReviewError",
+    "SceneAnchorReviewRequest",
+    "SceneAnchorReviewResponse",
+]
