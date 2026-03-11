@@ -26,7 +26,9 @@ def _write_catalog_fixture(tmp_path: Path) -> Path:
     (assets_dir / "characters").mkdir(parents=True, exist_ok=True)
     (assets_dir / "scenes").mkdir(parents=True, exist_ok=True)
     (assets_dir / "characters" / "linbai_1.png").write_bytes(b"char")
+    (assets_dir / "characters" / "linbai_2.jpg").write_bytes(b"char-2")
     (assets_dir / "scenes" / "classroom_1.png").write_bytes(b"scene")
+    (assets_dir / "scenes" / "classroom_2.jpg").write_bytes(b"scene-2")
     catalog_path = assets_dir / "catalog.json"
     catalog_path.write_text(
         json.dumps(
@@ -38,7 +40,7 @@ def _write_catalog_fixture(tmp_path: Path) -> Path:
                         "type": "character",
                         "display_name": "林白",
                         "jimeng_ref_name": "CHAR_LINBAI__v1",
-                        "files": ["assets/characters/linbai_1.png"],
+                        "files": ["assets/characters/linbai_2.jpg", "assets/characters/linbai_1.png"],
                         "tags": ["character", "林白"],
                     },
                     {
@@ -46,7 +48,7 @@ def _write_catalog_fixture(tmp_path: Path) -> Path:
                         "type": "scene",
                         "display_name": "教室",
                         "jimeng_ref_name": "SCENE_CLASSROOM__v1",
-                        "files": ["assets/scenes/classroom_1.png"],
+                        "files": ["assets/scenes/classroom_2.jpg", "assets/scenes/classroom_1.png"],
                         "tags": ["scene", "教室"],
                     },
                 ],
@@ -101,6 +103,34 @@ def _write_manju_scene_script(tmp_path: Path) -> Path:
                 "video_output_path": str(tmp_path / "outputs" / "videos" / "manju_scene_001.mp4"),
                 "anchor_output_path": str(tmp_path / "outputs" / "images" / "manju_scene_001.png"),
                 "manju_headless": True,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return script_path
+
+
+def _write_manju_scene_batch_script(tmp_path: Path) -> Path:
+    script_path = tmp_path / "manju_scene_batch.json"
+    script_path.write_text(
+        json.dumps(
+            {
+                "workflow_mode": "manju_scene_batch",
+                "character_ref": "CHAR_LINBAI__v1",
+                "scene_ref": "SCENE_CLASSROOM__v1",
+                "manju_headless": True,
+                "shots": [
+                    {
+                        "storyboard_id": "manju_batch_001",
+                        "storyboard_text": "Linbai stands still in the classroom.",
+                    },
+                    {
+                        "storyboard_id": "manju_batch_002",
+                        "storyboard_text": "Linbai turns and continues speaking in the classroom.",
+                    },
+                ],
             },
             ensure_ascii=False,
             indent=2,
@@ -481,6 +511,7 @@ def test_orchestrator_retry_shot_reruns_from_explicit_shot_id(tmp_path: Path) ->
 def test_orchestrator_run_executes_manju_scene_shot_workflow(tmp_path: Path) -> None:
     database_url = _build_database_url(tmp_path)
     script_path = _write_manju_scene_script(tmp_path)
+    _write_catalog_fixture(tmp_path)
     scene_runner = FakeSceneShotRunner()
     orchestrator = Orchestrator(
         database_url=database_url,
@@ -512,9 +543,47 @@ def test_orchestrator_run_executes_manju_scene_shot_workflow(tmp_path: Path) -> 
     assert json.loads(prompt_cache.reference_asset_ids) == ["@SceneAnchorImage"]
 
 
+def test_orchestrator_run_executes_manju_scene_batch_workflow(tmp_path: Path) -> None:
+    database_url = _build_database_url(tmp_path)
+    script_path = _write_manju_scene_batch_script(tmp_path)
+    _write_catalog_fixture(tmp_path)
+    scene_runner = FakeSceneShotRunner()
+    orchestrator = Orchestrator(
+        database_url=database_url,
+        project_root=tmp_path,
+        scene_shot_runner=scene_runner,
+    )
+
+    result = orchestrator.run(script_path=str(script_path))
+
+    assert result["status"] == "success"
+    assert result["workflow_mode"] == "manju_scene_batch"
+    assert result["shot_count"] == 2
+    assert len(scene_runner.calls) == 2
+    assert result["steps"]["scene_batch"]["status"] == "completed"
+    assert scene_runner.calls[0]["character_ref"] == "CHAR_LINBAI__v1"
+    assert scene_runner.calls[0]["scene_ref"] == "SCENE_CLASSROOM__v1"
+    assert Path(result["steps"]["scene_batch"]["shots"][0]["character_reference_image"]).name == "linbai_1.png"
+    assert Path(result["steps"]["scene_batch"]["shots"][0]["scene_reference_image"]).name == "classroom_1.png"
+
+    engine = create_engine(database_url, echo=False)
+    with Session(engine) as session:
+        task_run = session.exec(select(TaskRun)).one()
+        storyboards = session.exec(select(StoryboardRecord).order_by(StoryboardRecord.shot_index.asc())).all()
+        video_records = session.exec(select(VideoGenerationRecord).order_by(VideoGenerationRecord.id.asc())).all()
+
+    assert task_run.status == "success"
+    assert task_run.workflow_mode == "manju_scene_batch"
+    assert len(storyboards) == 2
+    assert all(storyboard.status == "completed" for storyboard in storyboards)
+    assert len(video_records) == 2
+    assert all(video_record.status == "completed" for video_record in video_records)
+
+
 def test_orchestrator_resume_retries_manju_scene_shot_workflow(tmp_path: Path) -> None:
     database_url = _build_database_url(tmp_path)
     script_path = _write_manju_scene_script(tmp_path)
+    _write_catalog_fixture(tmp_path)
     failing_runner = FakeSceneShotRunner(should_fail=True)
     orchestrator = Orchestrator(
         database_url=database_url,
@@ -545,3 +614,47 @@ def test_orchestrator_resume_retries_manju_scene_shot_workflow(tmp_path: Path) -
     assert storyboard.retry_count == 1
     assert video_record.retry_count == 1
     assert any(record.stage_name.startswith("resume:task:") for record in retry_records)
+
+
+def test_orchestrator_resume_retries_manju_scene_batch_from_failed_shot(tmp_path: Path) -> None:
+    database_url = _build_database_url(tmp_path)
+    script_path = _write_manju_scene_batch_script(tmp_path)
+    _write_catalog_fixture(tmp_path)
+    failing_runner = FakeSceneShotRunner()
+    succeeding_runner = FakeSceneShotRunner()
+
+    def flaky_scene_runner(**kwargs):
+        if kwargs["storyboard_id"] == "manju_batch_002":
+            raise RuntimeError("scene shot failed")
+        return failing_runner(**kwargs)
+
+    orchestrator = Orchestrator(
+        database_url=database_url,
+        project_root=tmp_path,
+        scene_shot_runner=flaky_scene_runner,
+    )
+
+    with pytest.raises(RuntimeError, match="scene shot failed"):
+        orchestrator.run(script_path=str(script_path))
+
+    orchestrator.scene_shot_runner = succeeding_runner
+    resumed = orchestrator.resume_task(1)
+
+    assert resumed["status"] == "success"
+    assert resumed["workflow_mode"] == "manju_scene_batch"
+    assert resumed["resumed"] is True
+    assert resumed["resumed_from_shot_index"] == 2
+    assert len(succeeding_runner.calls) == 1
+    assert succeeding_runner.calls[0]["storyboard_id"] == "manju_batch_002"
+
+    engine = create_engine(database_url, echo=False)
+    with Session(engine) as session:
+        task_run = session.exec(select(TaskRun)).one()
+        storyboards = session.exec(select(StoryboardRecord).order_by(StoryboardRecord.shot_index.asc())).all()
+        retry_records = session.exec(select(RetryRecord).order_by(RetryRecord.id.asc())).all()
+
+    assert task_run.retry_count == 1
+    assert task_run.status == "success"
+    assert storyboards[0].retry_count == 0
+    assert storyboards[1].retry_count == 1
+    assert any(record.stage_name == "shot:manju_batch_002" for record in retry_records)

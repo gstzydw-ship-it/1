@@ -13,7 +13,7 @@ from typing import Any
 
 from sqlmodel import Session, SQLModel, select
 
-from app.asset_catalog import AssetCatalogService, load_asset_catalog
+from app.asset_catalog import AssetCatalogService, load_asset_catalog, resolve_catalog_asset_reference
 from app.db.engine import build_engine
 from app.db.models import PromptCacheRecord, RetryRecord, StoryboardRecord, TaskRun, VideoGenerationRecord
 from app.jimeng_operator.models import JimengOneShotRequest, PromptAuditDecision
@@ -82,6 +82,13 @@ class Orchestrator:
             session.refresh(task_run)
         if workflow_mode == "manju_scene_shot":
             return self._execute_manju_scene_task(task_run_id=task_run.id, task_payload=task_payload, resumed=False)
+        if workflow_mode == "manju_scene_batch":
+            return self._execute_manju_scene_batch_task(
+                task_run_id=task_run.id,
+                task_payload=task_payload,
+                start_shot_index=1,
+                resumed=False,
+            )
         return self._execute_task(task_run_id=task_run.id, start_shot_index=1, resumed=False)
 
     def resume_task(self, task_run_id: int, *, shot_id: str | None = None) -> dict[str, Any]:
@@ -143,6 +150,14 @@ class Orchestrator:
             session.add(task_run)
             session.commit()
 
+        if task_run.workflow_mode == "manju_scene_batch":
+            task_payload = self._load_task_payload(Path(task_run.script_path or ""))
+            return self._execute_manju_scene_batch_task(
+                task_run_id=task_run_id,
+                task_payload=task_payload,
+                start_shot_index=start_shot_index,
+                resumed=True,
+            )
         return self._execute_task(task_run_id=task_run_id, start_shot_index=start_shot_index, resumed=True)
 
     def retry_shot(self, shot_id: str, *, task_run_id: int | None = None) -> dict[str, Any]:
@@ -156,6 +171,79 @@ class Orchestrator:
                     raise ValueError(f"镜头不存在: {shot_id}")
                 task_run_id = storyboard.task_run_id
         return self.resume_task(task_run_id, shot_id=shot_id)
+
+    def resume_task(self, task_run_id: int, *, shot_id: str | None = None) -> dict[str, Any]:
+        workflow_mode = ""
+        script_path = ""
+        with Session(self.engine) as session:
+            task_run = session.get(TaskRun, task_run_id)
+            if task_run is None:
+                raise ValueError(f"浠诲姟涓嶅瓨鍦? {task_run_id}")
+            workflow_mode = str(task_run.workflow_mode or "")
+            script_path = str(task_run.script_path or "")
+            if workflow_mode == "manju_scene_shot":
+                task_run.retry_count += 1
+                task_run.status = "running"
+                task_run.current_stage = "resume:scene_shot"
+                task_run.error_message = None
+                task_run.finished_at = None
+                session.add(
+                    RetryRecord(
+                        task_run_id=task_run.id,
+                        stage_name=f"resume:task:{task_run.id}",
+                        retry_count=task_run.retry_count,
+                        last_error=None,
+                    )
+                )
+                session.add(task_run)
+                session.commit()
+                task_payload = self._load_task_payload(Path(script_path))
+                return self._execute_manju_scene_task(task_run_id=task_run.id, task_payload=task_payload, resumed=True)
+
+            storyboards = session.exec(
+                select(StoryboardRecord)
+                .where(StoryboardRecord.task_run_id == task_run_id)
+                .order_by(StoryboardRecord.shot_index.asc())
+            ).all()
+
+            start_shot_index = self._resolve_resume_shot_index(storyboards, shot_id=shot_id)
+            start_storyboard = next(
+                (storyboard for storyboard in storyboards if storyboard.shot_index == start_shot_index),
+                None,
+            )
+            task_run.retry_count += 1
+            task_run.status = "running"
+            task_run.current_stage = f"resume:shot_{start_shot_index}"
+            task_run.error_message = None
+            task_run.finished_at = None
+            session.add(
+                RetryRecord(
+                    task_run_id=task_run.id,
+                    stage_name=f"resume:task:{task_run.id}",
+                    retry_count=task_run.retry_count,
+                    last_error=None,
+                )
+            )
+            session.add(
+                RetryRecord(
+                    task_run_id=task_run.id,
+                    stage_name=f"shot:{start_storyboard.storyboard_key if start_storyboard else shot_id or start_shot_index}",
+                    retry_count=task_run.retry_count,
+                    last_error=None,
+                )
+            )
+            session.add(task_run)
+            session.commit()
+
+        if workflow_mode == "manju_scene_batch":
+            task_payload = self._load_task_payload(Path(script_path))
+            return self._execute_manju_scene_batch_task(
+                task_run_id=task_run_id,
+                task_payload=task_payload,
+                start_shot_index=start_shot_index,
+                resumed=True,
+            )
+        return self._execute_task(task_run_id=task_run_id, start_shot_index=start_shot_index, resumed=True)
 
     def _execute_task(self, *, task_run_id: int, start_shot_index: int, resumed: bool) -> dict[str, Any]:
         with Session(self.engine) as session:
@@ -402,6 +490,145 @@ class Orchestrator:
                         "video_path": output_path,
                         "audit_report_path": str(run_result.get("audit_report_path") or ""),
                     },
+                },
+            }
+
+    def _execute_manju_scene_batch_task(
+        self,
+        *,
+        task_run_id: int,
+        task_payload: dict[str, Any],
+        start_shot_index: int,
+        resumed: bool,
+    ) -> dict[str, Any]:
+        with Session(self.engine) as session:
+            task_run = session.get(TaskRun, task_run_id)
+            if task_run is None:
+                raise ValueError(f"浠诲姟涓嶅瓨鍦? {task_run_id}")
+
+            shots = self._load_manju_scene_batch_shots(task_payload)
+            task_run.workflow_mode = "manju_scene_batch"
+            task_run.current_stage = "prepare:scene_batch"
+            task_run.error_message = None
+            session.add(task_run)
+            session.commit()
+
+            shot_results: list[dict[str, object]] = []
+            for shot_index, shot in enumerate(shots, start=1):
+                storyboard = self._get_or_create_storyboard_record(
+                    session=session,
+                    task_run=task_run,
+                    shot_index=shot_index,
+                    shot=shot,
+                )
+                video_record = self._get_or_create_video_record(session, storyboard)
+
+                if shot_index < start_shot_index and storyboard.status == "completed":
+                    shot_results.append(
+                        {
+                            "shot_id": storyboard.storyboard_key,
+                            "status": storyboard.status,
+                            "video_path": self._lookup_video_path(session, storyboard),
+                        }
+                    )
+                    continue
+
+                if shot_index >= start_shot_index and resumed:
+                    storyboard.retry_count += 1
+                    video_record.retry_count += 1
+
+                task_run.current_stage = f"running:scene_batch:{shot_index}"
+                storyboard.status = "generating"
+                storyboard.current_stage = "generating"
+                storyboard.started_at = storyboard.started_at or _utc_now()
+                storyboard.finished_at = None
+                storyboard.error_message = None
+                video_record.status = "generating"
+                video_record.current_stage = "generating"
+                video_record.started_at = video_record.started_at or _utc_now()
+                video_record.finished_at = None
+                video_record.error_message = None
+                session.add(task_run)
+                session.add(storyboard)
+                session.add(video_record)
+                session.commit()
+
+                try:
+                    prepared_shot = self._prepare_manju_scene_shot(shot)
+                    run_result = self.scene_shot_runner(**prepared_shot["runner_kwargs"])
+                except Exception as exc:
+                    failure_status = f"failed:shot_{shot_index}"
+                    storyboard.status = failure_status
+                    storyboard.current_stage = "failed"
+                    storyboard.error_message = str(exc)
+                    storyboard.finished_at = _utc_now()
+                    video_record.status = failure_status
+                    video_record.current_stage = "failed"
+                    video_record.error_message = str(exc)
+                    video_record.finished_at = _utc_now()
+                    task_run.status = failure_status
+                    task_run.current_stage = "failed"
+                    task_run.error_message = str(exc)
+                    task_run.finished_at = _utc_now()
+                    session.add(task_run)
+                    session.add(storyboard)
+                    session.add(video_record)
+                    session.commit()
+                    raise
+
+                output_path = str(run_result.get("output_path") or "")
+                self._replace_prompt_cache_record(
+                    session=session,
+                    cache_key=storyboard.storyboard_key,
+                    prompt_text=str(run_result.get("video_prompt") or ""),
+                    reference_asset_ids=json.dumps(["@SceneAnchorImage"], ensure_ascii=False),
+                )
+                storyboard.status = "completed"
+                storyboard.current_stage = "completed"
+                storyboard.finished_at = _utc_now()
+                storyboard.error_message = None
+                video_record.provider_job_id = storyboard.storyboard_key
+                video_record.video_path = output_path
+                video_record.status = "completed"
+                video_record.current_stage = "completed"
+                video_record.finished_at = _utc_now()
+                video_record.error_message = None
+                session.add(storyboard)
+                session.add(video_record)
+                session.commit()
+
+                shot_results.append(
+                    {
+                        "shot_id": storyboard.storyboard_key,
+                        "status": "completed",
+                        "video_path": output_path,
+                        "audit_report_path": str(run_result.get("audit_report_path") or ""),
+                        "character_ref": prepared_shot["character_asset_id"],
+                        "scene_ref": prepared_shot["scene_asset_id"],
+                        "character_reference_image": prepared_shot["character_image_path"],
+                        "scene_reference_image": prepared_shot["scene_image_path"],
+                    }
+                )
+
+            task_run.status = "success"
+            task_run.current_stage = "completed"
+            task_run.finished_at = _utc_now()
+            task_run.error_message = None
+            session.add(task_run)
+            session.commit()
+
+            return {
+                "status": "success",
+                "workflow_mode": "manju_scene_batch",
+                "task_run_id": task_run.id,
+                "shot_count": len(shots),
+                "resumed": resumed,
+                "resumed_from_shot_index": start_shot_index if resumed else None,
+                "steps": {
+                    "scene_batch": {
+                        "status": "completed",
+                        "shots": shot_results,
+                    }
                 },
             }
 
@@ -659,6 +886,13 @@ class Orchestrator:
         explicit_mode = str(payload.get("workflow_mode") or "").strip()
         if explicit_mode:
             return explicit_mode
+        shots = payload.get("shots") or payload.get("storyboards") or []
+        if shots:
+            if payload.get("character_ref") and payload.get("scene_ref"):
+                return "manju_scene_batch"
+            first_shot = shots[0] if isinstance(shots[0], dict) else {}
+            if first_shot.get("character_ref") and first_shot.get("scene_ref"):
+                return "manju_scene_batch"
         if payload.get("character_ref") and payload.get("scene_ref") and payload.get("storyboard_text"):
             return "manju_scene_shot"
         return "real_multi_shot"
@@ -681,6 +915,99 @@ class Orchestrator:
                 }
             )
         return normalized
+
+    def _load_manju_scene_batch_shots(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        shots = payload.get("shots") or payload.get("storyboards") or []
+        if not shots:
+            raise ValueError("manju_scene_batch payload is missing shots")
+
+        defaults = {
+            "character_ref": payload.get("character_ref"),
+            "scene_ref": payload.get("scene_ref"),
+            "anchor_prompt": payload.get("anchor_prompt", ""),
+            "video_prompt": payload.get("video_prompt", ""),
+            "aspect_ratio": payload.get("aspect_ratio", "16:9"),
+            "model_name": payload.get("model_name", "nano-banana-2"),
+            "duration_seconds": int(payload.get("duration_seconds") or 0),
+            "manju_mode": payload.get("manju_mode", "普通模式"),
+            "manju_resolution": payload.get("manju_resolution", "1080p"),
+            "manju_model_name": payload.get("manju_model_name", "Seedance1.5-pro"),
+            "manju_profile_dir": payload.get("manju_profile_dir", ""),
+            "manju_project_url": payload.get("manju_project_url", ""),
+            "manju_headless": bool(payload.get("manju_headless", True)),
+        }
+
+        normalized: list[dict[str, Any]] = []
+        for index, shot in enumerate(shots, start=1):
+            shot_id = shot.get("storyboard_id") or shot.get("id") or f"manju_scene_{index:03d}"
+            storyboard_text = str(shot.get("storyboard_text") or shot.get("summary") or "").strip()
+            character_ref = shot.get("character_ref") or defaults["character_ref"]
+            scene_ref = shot.get("scene_ref") or defaults["scene_ref"]
+            if not character_ref or not scene_ref:
+                raise ValueError(f"manju_scene_batch shot {index} is missing character_ref or scene_ref")
+            if not storyboard_text:
+                raise ValueError(f"manju_scene_batch shot {index} is missing storyboard_text")
+
+            normalized.append(
+                {
+                    "storyboard_id": shot_id,
+                    "storyboard_text": storyboard_text,
+                    "character_ref": str(character_ref),
+                    "scene_ref": str(scene_ref),
+                    "anchor_prompt": str(shot.get("anchor_prompt", defaults["anchor_prompt"]) or ""),
+                    "video_prompt": str(shot.get("video_prompt", defaults["video_prompt"]) or ""),
+                    "aspect_ratio": str(shot.get("aspect_ratio", defaults["aspect_ratio"]) or "16:9"),
+                    "model_name": str(shot.get("model_name", defaults["model_name"]) or "nano-banana-2"),
+                    "duration_seconds": int(shot.get("duration_seconds") or defaults["duration_seconds"] or 0),
+                    "manju_mode": str(shot.get("manju_mode", defaults["manju_mode"]) or "普通模式"),
+                    "manju_resolution": str(shot.get("manju_resolution", defaults["manju_resolution"]) or "1080p"),
+                    "manju_model_name": str(
+                        shot.get("manju_model_name", defaults["manju_model_name"]) or "Seedance1.5-pro"
+                    ),
+                    "manju_profile_dir": str(shot.get("manju_profile_dir", defaults["manju_profile_dir"]) or ""),
+                    "manju_project_url": str(shot.get("manju_project_url", defaults["manju_project_url"]) or ""),
+                    "manju_headless": bool(shot.get("manju_headless", defaults["manju_headless"])),
+                    "anchor_output_path": str(
+                        shot.get("anchor_output_path") or (self.project_root / "outputs" / "images" / f"{shot_id}.png")
+                    ),
+                    "video_output_path": str(
+                        shot.get("video_output_path") or (self.project_root / "outputs" / "videos" / f"{shot_id}.mp4")
+                    ),
+                }
+            )
+        return normalized
+
+    def _prepare_manju_scene_shot(self, shot: dict[str, Any]) -> dict[str, Any]:
+        catalog_path = self._resolve_catalog_path()
+        character_reference = resolve_catalog_asset_reference(catalog_path, shot["character_ref"], "character")
+        scene_reference = resolve_catalog_asset_reference(catalog_path, shot["scene_ref"], "scene")
+
+        return {
+            "runner_kwargs": {
+                "project_root": self.project_root,
+                "storyboard_id": str(shot["storyboard_id"]),
+                "character_ref": character_reference.asset.asset_id,
+                "scene_ref": scene_reference.asset.asset_id,
+                "storyboard_text": str(shot.get("storyboard_text") or ""),
+                "anchor_prompt": str(shot.get("anchor_prompt") or ""),
+                "video_prompt": str(shot.get("video_prompt") or ""),
+                "aspect_ratio": str(shot.get("aspect_ratio") or "16:9"),
+                "model_name": str(shot.get("model_name") or "nano-banana-2"),
+                "duration_seconds": int(shot.get("duration_seconds") or 0),
+                "manju_mode": str(shot.get("manju_mode") or "普通模式"),
+                "manju_resolution": str(shot.get("manju_resolution") or "1080p"),
+                "manju_model_name": str(shot.get("manju_model_name") or "Seedance1.5-pro"),
+                "manju_profile_dir": str(shot.get("manju_profile_dir") or ""),
+                "manju_project_url": str(shot.get("manju_project_url") or ""),
+                "manju_headless": bool(shot.get("manju_headless", True)),
+                "anchor_output_path": str(shot.get("anchor_output_path") or ""),
+                "video_output_path": str(shot.get("video_output_path") or ""),
+            },
+            "character_asset_id": character_reference.asset.asset_id,
+            "scene_asset_id": scene_reference.asset.asset_id,
+            "character_image_path": str(character_reference.selected_file),
+            "scene_image_path": str(scene_reference.selected_file),
+        }
 
     def _get_or_create_storyboard_record(
         self,
@@ -738,6 +1065,16 @@ class Orchestrator:
             )
         )
 
+    def _resolve_catalog_path(self) -> Path:
+        candidates = [
+            self.project_root / "assets" / "catalog.json",
+            self.project_root / "data" / "assets" / "catalog.json",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        raise FileNotFoundError("catalog.json not found under project assets")
+
     def _resolve_reference_file_paths(
         self,
         *,
@@ -747,14 +1084,17 @@ class Orchestrator:
         paths: list[Path] = []
         if previous_transition_path is not None:
             paths.append(previous_transition_path)
-        catalog = self._load_catalog()[0]
-        file_map = {asset.asset_id: asset.files for asset in catalog.assets}
+        catalog_path = self._resolve_catalog_path()
         for asset in selected_assets:
-            files = file_map.get(asset.asset_id) or []
-            if not files:
+            try:
+                resolved_reference = resolve_catalog_asset_reference(
+                    catalog_path,
+                    asset.asset_id,
+                    asset.type,
+                )
+            except ValueError:
                 continue
-            resolved = self.project_root / files[0]
-            paths.append(resolved)
+            paths.append(resolved_reference.selected_file)
         return paths
 
     def _serialize_reference_ids(self, refs: list[str], *, include_transition: bool) -> str:

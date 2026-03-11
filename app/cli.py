@@ -17,7 +17,7 @@ from typing import Optional
 
 import typer
 
-from app.asset_catalog import AssetCatalogService, load_asset_catalog
+from app.asset_catalog import AssetCatalogService, find_catalog_asset, load_asset_catalog, resolve_catalog_asset_reference
 from app.config import get_config
 from app.db.engine import build_engine
 from app.feishu_sync import FeishuSyncConfig, sync_assets
@@ -514,6 +514,51 @@ def _resolve_catalog_asset_image(catalog_path: Path, query: str, expected_type: 
             return asset, candidate
     type_labels = {"character": "角色", "scene": "场景", "monster": "妖兽"}
     raise typer.BadParameter(f"{type_labels.get(expected_type, expected_type)}素材缺少可用图片文件: {query}")
+
+
+def _resolve_reference_files_from_catalog(catalog_path: Path, selected_assets: list[CatalogAssetSummary]) -> list[Path]:
+    file_paths: list[Path] = []
+    allowed_suffixes = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".mp4", ".mov"}
+
+    for selected_asset in selected_assets:
+        try:
+            resolved_reference = resolve_catalog_asset_reference(
+                catalog_path,
+                selected_asset.asset_id,
+                selected_asset.type,
+                allowed_suffixes=tuple(allowed_suffixes),
+            )
+        except ValueError:
+            continue
+        if resolved_reference.selected_file not in file_paths:
+            file_paths.append(resolved_reference.selected_file)
+    return file_paths
+
+
+def _find_catalog_asset(catalog_path: Path, query: str, expected_type: str) -> object:
+    try:
+        return find_catalog_asset(catalog_path, query, expected_type)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
+def _resolve_catalog_asset_image(
+    catalog_path: Path,
+    query: str,
+    expected_type: str,
+    *,
+    preferred_index: int = 0,
+) -> tuple[object, Path]:
+    try:
+        resolved_reference = resolve_catalog_asset_reference(
+            catalog_path,
+            query,
+            expected_type,
+            preferred_index=preferred_index,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    return resolved_reference.asset, resolved_reference.selected_file
 
 
 def _build_continuity_requirements(
