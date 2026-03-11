@@ -88,6 +88,28 @@ def _write_two_shot_script(tmp_path: Path) -> Path:
     return script_path
 
 
+def _write_manju_scene_script(tmp_path: Path) -> Path:
+    script_path = tmp_path / "manju_scene.json"
+    script_path.write_text(
+        json.dumps(
+            {
+                "workflow_mode": "manju_scene_shot",
+                "storyboard_id": "manju_scene_001",
+                "character_ref": "Linbai",
+                "scene_ref": "Gate",
+                "storyboard_text": "Linbai stands still in the gate scene.",
+                "video_output_path": str(tmp_path / "outputs" / "videos" / "manju_scene_001.mp4"),
+                "anchor_output_path": str(tmp_path / "outputs" / "images" / "manju_scene_001.png"),
+                "manju_headless": True,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return script_path
+
+
 class FakeOpenClawClient:
     def __init__(self, *, fail_on_planner: bool = False) -> None:
         self.fail_on_planner = fail_on_planner
@@ -246,6 +268,29 @@ class FakeTransitionExtractor:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(b"transition")
         return output_path
+
+
+class FakeSceneShotRunner:
+    def __init__(self, should_fail: bool = False) -> None:
+        self.should_fail = should_fail
+        self.calls: list[dict[str, object]] = []
+
+    def __call__(self, **kwargs) -> dict[str, str]:
+        self.calls.append(kwargs)
+        if self.should_fail:
+            raise RuntimeError("scene shot failed")
+        output_path = Path(str(kwargs["video_output_path"]))
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"scene-video")
+        anchor_output_path = Path(str(kwargs["anchor_output_path"]))
+        anchor_output_path.parent.mkdir(parents=True, exist_ok=True)
+        anchor_output_path.write_bytes(b"scene-anchor")
+        return {
+            "output_path": str(output_path),
+            "anchor_image_path": str(anchor_output_path),
+            "audit_report_path": str(tmp_path := output_path.parent.parent / "reviews" / "manju_scene_001_audit.html"),
+            "video_prompt": "scene prompt",
+        }
 
 
 def test_orchestrator_run_executes_real_two_shot_chain(tmp_path: Path) -> None:
@@ -431,3 +476,72 @@ def test_orchestrator_retry_shot_reruns_from_explicit_shot_id(tmp_path: Path) ->
     assert task_run.retry_count == 1
     assert storyboards[0].retry_count == 0
     assert storyboards[1].retry_count == 1
+
+
+def test_orchestrator_run_executes_manju_scene_shot_workflow(tmp_path: Path) -> None:
+    database_url = _build_database_url(tmp_path)
+    script_path = _write_manju_scene_script(tmp_path)
+    scene_runner = FakeSceneShotRunner()
+    orchestrator = Orchestrator(
+        database_url=database_url,
+        project_root=tmp_path,
+        scene_shot_runner=scene_runner,
+    )
+
+    result = orchestrator.run(script_path=str(script_path))
+
+    assert result["status"] == "success"
+    assert result["workflow_mode"] == "manju_scene_shot"
+    assert result["shot_count"] == 1
+    assert result["steps"]["manju_scene_shot"]["status"] == "completed"
+    assert len(scene_runner.calls) == 1
+
+    engine = create_engine(database_url, echo=False)
+    with Session(engine) as session:
+        task_run = session.exec(select(TaskRun)).one()
+        storyboard = session.exec(select(StoryboardRecord)).one()
+        video_record = session.exec(select(VideoGenerationRecord)).one()
+        prompt_cache = session.exec(select(PromptCacheRecord)).one()
+
+    assert task_run.status == "success"
+    assert task_run.workflow_mode == "manju_scene_shot"
+    assert storyboard.status == "completed"
+    assert video_record.status == "completed"
+    assert video_record.video_path.endswith("manju_scene_001.mp4")
+    assert prompt_cache.prompt_text == "scene prompt"
+    assert json.loads(prompt_cache.reference_asset_ids) == ["@SceneAnchorImage"]
+
+
+def test_orchestrator_resume_retries_manju_scene_shot_workflow(tmp_path: Path) -> None:
+    database_url = _build_database_url(tmp_path)
+    script_path = _write_manju_scene_script(tmp_path)
+    failing_runner = FakeSceneShotRunner(should_fail=True)
+    orchestrator = Orchestrator(
+        database_url=database_url,
+        project_root=tmp_path,
+        scene_shot_runner=failing_runner,
+    )
+
+    with pytest.raises(RuntimeError, match="scene shot failed"):
+        orchestrator.run(script_path=str(script_path))
+
+    succeeding_runner = FakeSceneShotRunner()
+    orchestrator.scene_shot_runner = succeeding_runner
+    resumed = orchestrator.resume_task(1)
+
+    assert resumed["status"] == "success"
+    assert resumed["workflow_mode"] == "manju_scene_shot"
+    assert resumed["resumed"] is True
+    assert len(succeeding_runner.calls) == 1
+
+    engine = create_engine(database_url, echo=False)
+    with Session(engine) as session:
+        task_run = session.exec(select(TaskRun)).one()
+        storyboard = session.exec(select(StoryboardRecord)).one()
+        video_record = session.exec(select(VideoGenerationRecord)).one()
+        retry_records = session.exec(select(RetryRecord).order_by(RetryRecord.id.asc())).all()
+
+    assert task_run.retry_count == 1
+    assert storyboard.retry_count == 1
+    assert video_record.retry_count == 1
+    assert any(record.stage_name.startswith("resume:task:") for record in retry_records)

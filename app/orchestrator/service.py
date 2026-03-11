@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -37,6 +40,7 @@ class Orchestrator:
         project_root: Path | None = None,
         openclaw: object | None = None,
         jimeng_operator_factory: object | None = None,
+        scene_shot_runner: object | None = None,
         video_audit_runner: object | None = None,
         video_analyzer: object | None = None,
         transition_frame_extractor: object | None = None,
@@ -54,15 +58,20 @@ class Orchestrator:
         self.transition_frame_extractor = transition_frame_extractor or extract_transition_frame
         self.video_audit_runner = video_audit_runner or self._default_audit_runner
         self.jimeng_operator_factory = jimeng_operator_factory or self._default_jimeng_operator_factory
+        self.scene_shot_runner = scene_shot_runner or self._default_scene_shot_runner
 
     def run(self, script_path: str | None = None) -> dict[str, Any]:
         if not script_path:
             return self._run_placeholder(script_path)
 
+        resolved_script_path = Path(script_path).resolve()
+        task_payload = self._load_task_payload(resolved_script_path)
+        workflow_mode = self._detect_workflow_mode(task_payload)
+
         task_run = TaskRun(
             task_name="orchestrator.run",
-            script_path=str(Path(script_path).resolve()),
-            workflow_mode="real_multi_shot",
+            script_path=str(resolved_script_path),
+            workflow_mode=workflow_mode,
             status="running",
             current_stage="bootstrap",
             started_at=_utc_now(),
@@ -71,6 +80,8 @@ class Orchestrator:
             session.add(task_run)
             session.commit()
             session.refresh(task_run)
+        if workflow_mode == "manju_scene_shot":
+            return self._execute_manju_scene_task(task_run_id=task_run.id, task_payload=task_payload, resumed=False)
         return self._execute_task(task_run_id=task_run.id, start_shot_index=1, resumed=False)
 
     def resume_task(self, task_run_id: int, *, shot_id: str | None = None) -> dict[str, Any]:
@@ -78,6 +89,24 @@ class Orchestrator:
             task_run = session.get(TaskRun, task_run_id)
             if task_run is None:
                 raise ValueError(f"任务不存在: {task_run_id}")
+            if task_run.workflow_mode == "manju_scene_shot":
+                task_run.retry_count += 1
+                task_run.status = "running"
+                task_run.current_stage = "resume:scene_shot"
+                task_run.error_message = None
+                task_run.finished_at = None
+                session.add(
+                    RetryRecord(
+                        task_run_id=task_run.id,
+                        stage_name=f"resume:task:{task_run.id}",
+                        retry_count=task_run.retry_count,
+                        last_error=None,
+                    )
+                )
+                session.add(task_run)
+                session.commit()
+                task_payload = self._load_task_payload(Path(task_run.script_path or ""))
+                return self._execute_manju_scene_task(task_run_id=task_run.id, task_payload=task_payload, resumed=True)
 
             storyboards = session.exec(
                 select(StoryboardRecord)
@@ -240,6 +269,139 @@ class Orchestrator:
                     "feishu_sync": {"status": "skipped", "reason": "恢复版优先复用本地 catalog.json"},
                     "asset_catalog": {"status": asset_catalog_status, "catalog_assets": catalog.total_assets},
                     "shots": shot_results,
+                },
+            }
+
+    def _execute_manju_scene_task(
+        self,
+        *,
+        task_run_id: int,
+        task_payload: dict[str, Any],
+        resumed: bool,
+    ) -> dict[str, Any]:
+        with Session(self.engine) as session:
+            task_run = session.get(TaskRun, task_run_id)
+            if task_run is None:
+                raise ValueError(f"任务不存在: {task_run_id}")
+
+            storyboard_id = str(task_payload.get("storyboard_id") or "manju_scene_shot")
+            storyboard_text = str(task_payload.get("storyboard_text") or "").strip()
+            storyboard = self._get_or_create_storyboard_record(
+                session=session,
+                task_run=task_run,
+                shot_index=1,
+                shot={
+                    "storyboard_id": storyboard_id,
+                    "storyboard_text": storyboard_text,
+                },
+            )
+            video_record = self._get_or_create_video_record(session, storyboard)
+
+            if resumed:
+                storyboard.retry_count += 1
+                video_record.retry_count += 1
+
+            task_run.workflow_mode = "manju_scene_shot"
+            task_run.current_stage = "running:scene_shot"
+            task_run.error_message = None
+            storyboard.status = "generating"
+            storyboard.current_stage = "generating"
+            storyboard.started_at = storyboard.started_at or _utc_now()
+            storyboard.error_message = None
+            video_record.status = "generating"
+            video_record.current_stage = "generating"
+            video_record.started_at = video_record.started_at or _utc_now()
+            video_record.error_message = None
+            session.add(task_run)
+            session.add(storyboard)
+            session.add(video_record)
+            session.commit()
+
+            try:
+                run_result = self.scene_shot_runner(
+                    project_root=self.project_root,
+                    storyboard_id=storyboard_id,
+                    character_ref=str(task_payload["character_ref"]),
+                    scene_ref=str(task_payload["scene_ref"]),
+                    storyboard_text=storyboard_text,
+                    anchor_prompt=str(task_payload.get("anchor_prompt") or ""),
+                    video_prompt=str(task_payload.get("video_prompt") or ""),
+                    aspect_ratio=str(task_payload.get("aspect_ratio") or "16:9"),
+                    model_name=str(task_payload.get("model_name") or "nano-banana-2"),
+                    duration_seconds=int(task_payload.get("duration_seconds") or 0),
+                    manju_mode=str(task_payload.get("manju_mode") or "普通模式"),
+                    manju_resolution=str(task_payload.get("manju_resolution") or "1080p"),
+                    manju_model_name=str(task_payload.get("manju_model_name") or "Seedance1.5-pro"),
+                    manju_profile_dir=str(task_payload.get("manju_profile_dir") or ""),
+                    manju_project_url=str(task_payload.get("manju_project_url") or ""),
+                    manju_headless=bool(task_payload.get("manju_headless", True)),
+                    anchor_output_path=str(task_payload.get("anchor_output_path") or ""),
+                    video_output_path=str(task_payload.get("video_output_path") or ""),
+                )
+            except Exception as exc:
+                failure_status = "failed:scene_shot"
+                storyboard.status = failure_status
+                storyboard.current_stage = "failed"
+                storyboard.error_message = str(exc)
+                storyboard.finished_at = _utc_now()
+                video_record.status = failure_status
+                video_record.current_stage = "failed"
+                video_record.error_message = str(exc)
+                video_record.finished_at = _utc_now()
+                task_run.status = failure_status
+                task_run.current_stage = "failed"
+                task_run.error_message = str(exc)
+                task_run.finished_at = _utc_now()
+                session.add(task_run)
+                session.add(storyboard)
+                session.add(video_record)
+                session.commit()
+                raise
+
+            output_path = str(run_result.get("output_path") or "")
+            self._replace_prompt_cache_record(
+                session=session,
+                cache_key=storyboard_id,
+                prompt_text=str(run_result.get("video_prompt") or ""),
+                reference_asset_ids=json.dumps(["@SceneAnchorImage"], ensure_ascii=False),
+            )
+            storyboard.status = "completed"
+            storyboard.current_stage = "completed"
+            storyboard.finished_at = _utc_now()
+            storyboard.error_message = None
+            video_record.provider_job_id = storyboard_id
+            video_record.video_path = output_path
+            video_record.status = "completed"
+            video_record.current_stage = "completed"
+            video_record.finished_at = _utc_now()
+            video_record.error_message = None
+            task_run.status = "success"
+            task_run.current_stage = "completed"
+            task_run.error_message = None
+            task_run.finished_at = _utc_now()
+            session.add(task_run)
+            session.add(storyboard)
+            session.add(video_record)
+            session.commit()
+
+            return {
+                "status": "success",
+                "workflow_mode": "manju_scene_shot",
+                "task_run_id": task_run.id,
+                "shot_count": 1,
+                "resumed": resumed,
+                "resumed_from_shot_index": 1 if resumed else None,
+                "steps": {
+                    "scene_anchor": {
+                        "status": "completed",
+                        "output_path": str(run_result.get("anchor_image_path") or ""),
+                    },
+                    "manju_scene_shot": {
+                        "status": "completed",
+                        "shot_id": storyboard_id,
+                        "video_path": output_path,
+                        "audit_report_path": str(run_result.get("audit_report_path") or ""),
+                    },
                 },
             }
 
@@ -487,6 +649,20 @@ class Orchestrator:
                 return build_result.catalog, "rebuilt"
         raise FileNotFoundError("未找到可用 catalog.json 或 assets 目录。")
 
+    def _load_task_payload(self, script_path: Path) -> dict[str, Any]:
+        payload = json.loads(script_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("输入任务文件必须是 JSON 对象。")
+        return payload
+
+    def _detect_workflow_mode(self, payload: dict[str, Any]) -> str:
+        explicit_mode = str(payload.get("workflow_mode") or "").strip()
+        if explicit_mode:
+            return explicit_mode
+        if payload.get("character_ref") and payload.get("scene_ref") and payload.get("storyboard_text"):
+            return "manju_scene_shot"
+        return "real_multi_shot"
+
     def _load_shots(self, script_path: Path) -> list[dict[str, Any]]:
         payload = json.loads(script_path.read_text(encoding="utf-8"))
         shots = payload.get("shots") or payload.get("storyboards") or []
@@ -603,6 +779,90 @@ class Orchestrator:
             if storyboard.status != "completed":
                 return storyboard.shot_index
         raise ValueError("任务没有可恢复的失败镜头。")
+
+    def _default_scene_shot_runner(self, **kwargs) -> dict[str, str]:
+        command = [
+            sys.executable,
+            "-m",
+            "app.cli",
+            "run-manju-scene-shot",
+            "--character-ref",
+            str(kwargs["character_ref"]),
+            "--scene-ref",
+            str(kwargs["scene_ref"]),
+            "--storyboard-text",
+            str(kwargs["storyboard_text"]),
+            "--aspect-ratio",
+            str(kwargs["aspect_ratio"]),
+            "--model",
+            str(kwargs["model_name"]),
+            "--duration-seconds",
+            str(kwargs["duration_seconds"]),
+            "--manju-mode",
+            str(kwargs["manju_mode"]),
+            "--manju-resolution",
+            str(kwargs["manju_resolution"]),
+            "--manju-model-name",
+            str(kwargs["manju_model_name"]),
+        ]
+        if kwargs.get("anchor_prompt"):
+            command.extend(["--anchor-prompt", str(kwargs["anchor_prompt"])])
+        if kwargs.get("video_prompt"):
+            command.extend(["--video-prompt", str(kwargs["video_prompt"])])
+        if kwargs.get("manju_profile_dir"):
+            command.extend(["--manju-profile-dir", str(kwargs["manju_profile_dir"])])
+        if kwargs.get("manju_project_url"):
+            command.extend(["--manju-project-url", str(kwargs["manju_project_url"])])
+        if kwargs.get("anchor_output_path"):
+            command.extend(["--anchor-output-path", str(kwargs["anchor_output_path"])])
+        if kwargs.get("video_output_path"):
+            command.extend(["--video-output-path", str(kwargs["video_output_path"])])
+        if kwargs.get("manju_headless", True):
+            command.append("--manju-headless")
+        else:
+            command.append("--manju-headed")
+
+        child_env = os.environ.copy()
+        child_env.setdefault("PYTHONIOENCODING", "utf-8")
+        child_env.setdefault("PYTHONUTF8", "1")
+        process = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(kwargs["project_root"]),
+            env=child_env,
+            check=False,
+        )
+        if process.returncode != 0:
+            detail_lines = [line for line in process.stdout.strip().splitlines()[-20:] if line.strip()]
+            detail_lines.extend(line for line in process.stderr.strip().splitlines()[-20:] if line.strip())
+            detail = "\n".join(detail_lines).strip()
+            raise RuntimeError(detail or f"scene shot runner failed with exit code {process.returncode}")
+
+        output_path = str(kwargs.get("video_output_path") or "").strip()
+        anchor_image_path = str(kwargs.get("anchor_output_path") or "").strip()
+        audit_report_path = ""
+        video_prompt = str(kwargs.get("video_prompt") or "")
+        for raw_line in process.stdout.splitlines():
+            line = raw_line.strip()
+            if line.startswith("- output_path:"):
+                output_path = line.split(":", 1)[1].strip()
+            elif line.startswith("- anchor_image_path:"):
+                anchor_image_path = line.split(":", 1)[1].strip()
+            elif line.startswith("- audit_report_path:"):
+                audit_report_path = line.split(":", 1)[1].strip()
+            elif line.startswith("- video_prompt:"):
+                video_prompt = line.split(":", 1)[1].strip()
+
+        return {
+            "output_path": output_path,
+            "anchor_image_path": anchor_image_path,
+            "audit_report_path": audit_report_path,
+            "video_prompt": video_prompt,
+            "stdout": process.stdout,
+        }
 
     def _default_jimeng_operator_factory(self) -> JimengWebOperator:
         return JimengWebOperator(build_default_jimeng_config(self.project_root))

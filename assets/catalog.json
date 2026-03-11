@@ -1,5 +1,5 @@
 {
-  "total_assets": 2,
+  "total_assets": 103,
   "assets": [
     {
       "asset_id": "CHAR_ManjuTest__v1",
@@ -7,11 +7,1053 @@
       "display_name": "ManjuTest",
       "jimeng_ref_name": "CHAR_ManjuTest__v1",
       "files": [
-        "assets/characters/ManjuTest_1.png"
+        "D:\\agent\\video-agent-system\\assets\\characters\\ManjuTest_1.png"
       ],
       "tags": [
         "character",
-        "manjutest"
+        "ManjuTest"
+      ]
+    },
+    {
+      "asset_id": "CHAR_主持人_天骄赛_擂台赛__v1",
+      "type": "character",
+      "display_name": "主持人（天骄赛 _ 擂台赛）",
+      "jimeng_ref_name": "CHAR_主持人_天骄赛_擂台赛__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\主持人（天骄赛 _ 擂台赛）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "主持人（天骄赛 _ 擂台赛）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_任老师_山城一中监考老师__v1",
+      "type": "character",
+      "display_name": "任老师（山城一中监考老师）",
+      "jimeng_ref_name": "CHAR_任老师_山城一中监考老师__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\任老师（山城一中监考老师）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "任老师（山城一中监考老师）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_低阶魔族__v1",
+      "type": "character",
+      "display_name": "低阶魔族",
+      "jimeng_ref_name": "CHAR_低阶魔族__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\低阶魔族_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "低阶魔族"
+      ]
+    },
+    {
+      "asset_id": "CHAR_函夏龙卫_若干__v1",
+      "type": "character",
+      "display_name": "函夏龙卫（若干）",
+      "jimeng_ref_name": "CHAR_函夏龙卫_若干__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\函夏龙卫（若干）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "函夏龙卫（若干）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_叶明__v1",
+      "type": "character",
+      "display_name": "叶明",
+      "jimeng_ref_name": "CHAR_叶明__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\叶明_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "叶明"
+      ]
+    },
+    {
+      "asset_id": "CHAR_同学A__v1",
+      "type": "character",
+      "display_name": "同学A",
+      "jimeng_ref_name": "CHAR_同学A__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\同学A_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "同学A"
+      ]
+    },
+    {
+      "asset_id": "CHAR_同学B__v1",
+      "type": "character",
+      "display_name": "同学B",
+      "jimeng_ref_name": "CHAR_同学B__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\同学B_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "同学B"
+      ]
+    },
+    {
+      "asset_id": "CHAR_同学C__v1",
+      "type": "character",
+      "display_name": "同学C",
+      "jimeng_ref_name": "CHAR_同学C__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\同学C_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "同学C"
+      ]
+    },
+    {
+      "asset_id": "CHAR_同学D__v1",
+      "type": "character",
+      "display_name": "同学D",
+      "jimeng_ref_name": "CHAR_同学D__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\同学D_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "同学D"
+      ]
+    },
+    {
+      "asset_id": "CHAR_周家保镖_1__v1",
+      "type": "character",
+      "display_name": "周家保镖 1",
+      "jimeng_ref_name": "CHAR_周家保镖_1__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\周家保镖 1_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "周家保镖 1"
+      ]
+    },
+    {
+      "asset_id": "CHAR_周家保镖_2__v1",
+      "type": "character",
+      "display_name": "周家保镖 2",
+      "jimeng_ref_name": "CHAR_周家保镖_2__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\周家保镖 2_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "周家保镖 2"
+      ]
+    },
+    {
+      "asset_id": "CHAR_周家小弟__v1",
+      "type": "character",
+      "display_name": "周家小弟",
+      "jimeng_ref_name": "CHAR_周家小弟__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\周家小弟_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "周家小弟"
+      ]
+    },
+    {
+      "asset_id": "CHAR_周振雄__v1",
+      "type": "character",
+      "display_name": "周振雄",
+      "jimeng_ref_name": "CHAR_周振雄__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\周振雄_1.JPG"
+      ],
+      "tags": [
+        "character",
+        "周振雄"
+      ]
+    },
+    {
+      "asset_id": "CHAR_周浩天__v1",
+      "type": "character",
+      "display_name": "周浩天",
+      "jimeng_ref_name": "CHAR_周浩天__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\周浩天_1.png"
+      ],
+      "tags": [
+        "character",
+        "周浩天"
+      ]
+    },
+    {
+      "asset_id": "CHAR_周浩天小弟__v1",
+      "type": "character",
+      "display_name": "周浩天小弟",
+      "jimeng_ref_name": "CHAR_周浩天小弟__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\周浩天小弟_1.png"
+      ],
+      "tags": [
+        "character",
+        "周浩天小弟"
+      ]
+    },
+    {
+      "asset_id": "CHAR_周浩然__v1",
+      "type": "character",
+      "display_name": "周浩然",
+      "jimeng_ref_name": "CHAR_周浩然__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\周浩然_1.jPG"
+      ],
+      "tags": [
+        "character",
+        "周浩然"
+      ]
+    },
+    {
+      "asset_id": "CHAR_周父_周浩然父亲__v1",
+      "type": "character",
+      "display_name": "周父（周浩然父亲）",
+      "jimeng_ref_name": "CHAR_周父_周浩然父亲__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\周父（周浩然父亲）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "周父（周浩然父亲）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_周老师_山城一中监考老师__v1",
+      "type": "character",
+      "display_name": "周老师（山城一中监考老师）",
+      "jimeng_ref_name": "CHAR_周老师_山城一中监考老师__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\周老师（山城一中监考老师）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "周老师（山城一中监考老师）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_唐天_凌天学院选手__v1",
+      "type": "character",
+      "display_name": "唐天（凌天学院选手）",
+      "jimeng_ref_name": "CHAR_唐天_凌天学院选手__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\唐天（凌天学院选手）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "唐天（凌天学院选手）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_士兵_A__v1",
+      "type": "character",
+      "display_name": "士兵 A",
+      "jimeng_ref_name": "CHAR_士兵_A__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\士兵 A_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "士兵 A"
+      ]
+    },
+    {
+      "asset_id": "CHAR_士兵_B__v1",
+      "type": "character",
+      "display_name": "士兵 B",
+      "jimeng_ref_name": "CHAR_士兵_B__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\士兵 B_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "士兵 B"
+      ]
+    },
+    {
+      "asset_id": "CHAR_士兵_C__v1",
+      "type": "character",
+      "display_name": "士兵 C",
+      "jimeng_ref_name": "CHAR_士兵_C__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\士兵 C_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "士兵 C"
+      ]
+    },
+    {
+      "asset_id": "CHAR_夏木__v1",
+      "type": "character",
+      "display_name": "夏木",
+      "jimeng_ref_name": "CHAR_夏木__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\夏木_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "夏木"
+      ]
+    },
+    {
+      "asset_id": "CHAR_女生A__v1",
+      "type": "character",
+      "display_name": "女生A",
+      "jimeng_ref_name": "CHAR_女生A__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\女生A_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "女生A"
+      ]
+    },
+    {
+      "asset_id": "CHAR_女生B__v1",
+      "type": "character",
+      "display_name": "女生B",
+      "jimeng_ref_name": "CHAR_女生B__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\女生B_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "女生B"
+      ]
+    },
+    {
+      "asset_id": "CHAR_学生乙_男__v1",
+      "type": "character",
+      "display_name": "学生乙（男）",
+      "jimeng_ref_name": "CHAR_学生乙_男__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\学生乙（男）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "学生乙（男）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_学生甲_女__v1",
+      "type": "character",
+      "display_name": "学生甲（女）",
+      "jimeng_ref_name": "CHAR_学生甲_女__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\学生甲（女）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "学生甲（女）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_小恶魔__v1",
+      "type": "character",
+      "display_name": "小恶魔",
+      "jimeng_ref_name": "CHAR_小恶魔__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\小恶魔_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "小恶魔"
+      ]
+    },
+    {
+      "asset_id": "CHAR_崔莉莉_破军学院新人第一刺客__v1",
+      "type": "character",
+      "display_name": "崔莉莉（破军学院新人第一刺客）",
+      "jimeng_ref_name": "CHAR_崔莉莉_破军学院新人第一刺客__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\崔莉莉（破军学院新人第一刺客）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "崔莉莉（破军学院新人第一刺客）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_幸存市民丙__v1",
+      "type": "character",
+      "display_name": "幸存市民丙",
+      "jimeng_ref_name": "CHAR_幸存市民丙__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\幸存市民丙_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "幸存市民丙"
+      ]
+    },
+    {
+      "asset_id": "CHAR_幸存市民乙__v1",
+      "type": "character",
+      "display_name": "幸存市民乙",
+      "jimeng_ref_name": "CHAR_幸存市民乙__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\幸存市民乙_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "幸存市民乙"
+      ]
+    },
+    {
+      "asset_id": "CHAR_幸存市民甲__v1",
+      "type": "character",
+      "display_name": "幸存市民甲",
+      "jimeng_ref_name": "CHAR_幸存市民甲__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\幸存市民甲_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "幸存市民甲"
+      ]
+    },
+    {
+      "asset_id": "CHAR_张永辉_破军学院天才选手__v1",
+      "type": "character",
+      "display_name": "张永辉（破军学院天才选手）",
+      "jimeng_ref_name": "CHAR_张永辉_破军学院天才选手__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\张永辉（破军学院天才选手）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "张永辉（破军学院天才选手）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_张洁玲_万象学院新人第一元素法师__v1",
+      "type": "character",
+      "display_name": "张洁玲（万象学院新人第一元素法师）",
+      "jimeng_ref_name": "CHAR_张洁玲_万象学院新人第一元素法师__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\张洁玲（万象学院新人第一元素法师）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "张洁玲（万象学院新人第一元素法师）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_御魔长城指挥官__v1",
+      "type": "character",
+      "display_name": "御魔长城指挥官",
+      "jimeng_ref_name": "CHAR_御魔长城指挥官__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\御魔长城指挥官_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "御魔长城指挥官"
+      ]
+    },
+    {
+      "asset_id": "CHAR_战士_A__v1",
+      "type": "character",
+      "display_name": "战士 A",
+      "jimeng_ref_name": "CHAR_战士_A__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\战士 A_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "战士 A"
+      ]
+    },
+    {
+      "asset_id": "CHAR_战士_B__v1",
+      "type": "character",
+      "display_name": "战士 B",
+      "jimeng_ref_name": "CHAR_战士_B__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\战士 B_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "战士 B"
+      ]
+    },
+    {
+      "asset_id": "CHAR_战士_C__v1",
+      "type": "character",
+      "display_name": "战士 C",
+      "jimeng_ref_name": "CHAR_战士_C__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\战士 C_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "战士 C"
+      ]
+    },
+    {
+      "asset_id": "CHAR_拍卖师__v1",
+      "type": "character",
+      "display_name": "拍卖师",
+      "jimeng_ref_name": "CHAR_拍卖师__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\拍卖师_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "拍卖师"
+      ]
+    },
+    {
+      "asset_id": "CHAR_搬运工_2_人_送小黄培养补品__v1",
+      "type": "character",
+      "display_name": "搬运工（2 人，送小黄培养补品）",
+      "jimeng_ref_name": "CHAR_搬运工_2_人_送小黄培养补品__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\搬运工（2 人，送小黄培养补品）_1.jpg",
+        "D:\\agent\\video-agent-system\\assets\\characters\\搬运工（2 人，送小黄培养补品）_2.jpg"
+      ],
+      "tags": [
+        "character",
+        "搬运工（2 人，送小黄培养补品）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_教导主任_周扒皮_山城一中教导主任__v1",
+      "type": "character",
+      "display_name": "教导主任（周扒皮，山城一中教导主任）",
+      "jimeng_ref_name": "CHAR_教导主任_周扒皮_山城一中教导主任__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\教导主任（周扒皮，山城一中教导主任）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "教导主任（周扒皮，山城一中教导主任）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_李山队友_万象学院学生__v1",
+      "type": "character",
+      "display_name": "李山队友（万象学院学生）",
+      "jimeng_ref_name": "CHAR_李山队友_万象学院学生__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\李山队友（万象学院学生）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "李山队友（万象学院学生）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_李山_万象学院新生__v1",
+      "type": "character",
+      "display_name": "李山（万象学院新生）",
+      "jimeng_ref_name": "CHAR_李山_万象学院新生__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\李山（万象学院新生）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "李山（万象学院新生）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_李峰_参赛选手__v1",
+      "type": "character",
+      "display_name": "李峰（参赛选手）",
+      "jimeng_ref_name": "CHAR_李峰_参赛选手__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\李峰（参赛选手）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "李峰（参赛选手）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_李老师_山城一中高三_3_班老师__v1",
+      "type": "character",
+      "display_name": "李老师（山城一中高三（3）班老师）",
+      "jimeng_ref_name": "CHAR_李老师_山城一中高三_3_班老师__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\李老师（山城一中高三（3）班老师）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "李老师（山城一中高三（3）班老师）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_林可__v1",
+      "type": "character",
+      "display_name": "林可",
+      "jimeng_ref_name": "CHAR_林可__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\林可_1.png",
+        "D:\\agent\\video-agent-system\\assets\\characters\\林可_2.png"
+      ],
+      "tags": [
+        "character",
+        "林可"
+      ]
+    },
+    {
+      "asset_id": "CHAR_林墨语_凌天学院亡灵法师__v1",
+      "type": "character",
+      "display_name": "林墨语（凌天学院亡灵法师）",
+      "jimeng_ref_name": "CHAR_林墨语_凌天学院亡灵法师__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\林墨语（凌天学院亡灵法师）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "林墨语（凌天学院亡灵法师）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_林白__v1",
+      "type": "character",
+      "display_name": "林白",
+      "jimeng_ref_name": "CHAR_林白__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\林白_1.png"
+      ],
+      "tags": [
+        "character",
+        "林白"
+      ]
+    },
+    {
+      "asset_id": "CHAR_校长_王强_山城一中校长__v1",
+      "type": "character",
+      "display_name": "校长（王强，山城一中校长）",
+      "jimeng_ref_name": "CHAR_校长_王强_山城一中校长__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\校长（王强，山城一中校长）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "校长（王强，山城一中校长）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_王子春_破军学院选手__v1",
+      "type": "character",
+      "display_name": "王子春（破军学院选手）",
+      "jimeng_ref_name": "CHAR_王子春_破军学院选手__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\王子春（破军学院选手）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "王子春（破军学院选手）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_百兽阁经理__v1",
+      "type": "character",
+      "display_name": "百兽阁经理",
+      "jimeng_ref_name": "CHAR_百兽阁经理__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\百兽阁经理_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "百兽阁经理"
+      ]
+    },
+    {
+      "asset_id": "CHAR_秘书_苏军首_龙军首秘书__v1",
+      "type": "character",
+      "display_name": "秘书（苏军首 _ 龙军首秘书）",
+      "jimeng_ref_name": "CHAR_秘书_苏军首_龙军首秘书__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\秘书（苏军首 _ 龙军首秘书）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "秘书（苏军首 _ 龙军首秘书）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_职业者_A__v1",
+      "type": "character",
+      "display_name": "职业者 A",
+      "jimeng_ref_name": "CHAR_职业者_A__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\职业者 A_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "职业者 A"
+      ]
+    },
+    {
+      "asset_id": "CHAR_职业者_B__v1",
+      "type": "character",
+      "display_name": "职业者 B",
+      "jimeng_ref_name": "CHAR_职业者_B__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\职业者 B_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "职业者 B"
+      ]
+    },
+    {
+      "asset_id": "CHAR_职业者_C__v1",
+      "type": "character",
+      "display_name": "职业者 C",
+      "jimeng_ref_name": "CHAR_职业者_C__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\职业者 C_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "职业者 C"
+      ]
+    },
+    {
+      "asset_id": "CHAR_苏军首__v1",
+      "type": "character",
+      "display_name": "苏军首",
+      "jimeng_ref_name": "CHAR_苏军首__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\苏军首_1.jPG"
+      ],
+      "tags": [
+        "character",
+        "苏军首"
+      ]
+    },
+    {
+      "asset_id": "CHAR_苏小暖__v1",
+      "type": "character",
+      "display_name": "苏小暖",
+      "jimeng_ref_name": "CHAR_苏小暖__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\苏小暖_1.jPG"
+      ],
+      "tags": [
+        "character",
+        "苏小暖"
+      ]
+    },
+    {
+      "asset_id": "CHAR_苏航_凌天学院新人第一人_龙骑士__v1",
+      "type": "character",
+      "display_name": "苏航（凌天学院新人第一人，龙骑士）",
+      "jimeng_ref_name": "CHAR_苏航_凌天学院新人第一人_龙骑士__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\苏航（凌天学院新人第一人，龙骑士）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "苏航（凌天学院新人第一人，龙骑士）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_衣着华贵的男生__v1",
+      "type": "character",
+      "display_name": "衣着华贵的男生",
+      "jimeng_ref_name": "CHAR_衣着华贵的男生__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\衣着华贵的男生_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "衣着华贵的男生"
+      ]
+    },
+    {
+      "asset_id": "CHAR_赌客乙_男粗狂大叔__v1",
+      "type": "character",
+      "display_name": "赌客乙（男粗狂大叔）",
+      "jimeng_ref_name": "CHAR_赌客乙_男粗狂大叔__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\赌客乙（男粗狂大叔）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "赌客乙（男粗狂大叔）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_赌客甲_男猥琐大叔__v1",
+      "type": "character",
+      "display_name": "赌客甲（男猥琐大叔）",
+      "jimeng_ref_name": "CHAR_赌客甲_男猥琐大叔__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\赌客甲（男猥琐大叔）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "赌客甲（男猥琐大叔）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_路人A_女__v1",
+      "type": "character",
+      "display_name": "路人A（女）",
+      "jimeng_ref_name": "CHAR_路人A_女__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\路人A（女）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "路人A（女）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_路人B_男__v1",
+      "type": "character",
+      "display_name": "路人B（男）",
+      "jimeng_ref_name": "CHAR_路人B_男__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\路人B（男）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "路人B（男）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_路人C_男_大叔__v1",
+      "type": "character",
+      "display_name": "路人C（男 大叔）",
+      "jimeng_ref_name": "CHAR_路人C_男_大叔__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\路人C（男 大叔）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "路人C（男 大叔）"
+      ]
+    },
+    {
+      "asset_id": "CHAR_陈夏娜__v1",
+      "type": "character",
+      "display_name": "陈夏娜",
+      "jimeng_ref_name": "CHAR_陈夏娜__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\陈夏娜_1.png"
+      ],
+      "tags": [
+        "character",
+        "陈夏娜"
+      ]
+    },
+    {
+      "asset_id": "CHAR_陈夏娜队友A__v1",
+      "type": "character",
+      "display_name": "陈夏娜队友A",
+      "jimeng_ref_name": "CHAR_陈夏娜队友A__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\陈夏娜队友A_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "陈夏娜队友A"
+      ]
+    },
+    {
+      "asset_id": "CHAR_陈夏娜队友B__v1",
+      "type": "character",
+      "display_name": "陈夏娜队友B",
+      "jimeng_ref_name": "CHAR_陈夏娜队友B__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\陈夏娜队友B_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "陈夏娜队友B"
+      ]
+    },
+    {
+      "asset_id": "CHAR_领导丙__v1",
+      "type": "character",
+      "display_name": "领导丙",
+      "jimeng_ref_name": "CHAR_领导丙__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\领导丙_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "领导丙"
+      ]
+    },
+    {
+      "asset_id": "CHAR_领导乙__v1",
+      "type": "character",
+      "display_name": "领导乙",
+      "jimeng_ref_name": "CHAR_领导乙__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\领导乙_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "领导乙"
+      ]
+    },
+    {
+      "asset_id": "CHAR_领导甲__v1",
+      "type": "character",
+      "display_name": "领导甲",
+      "jimeng_ref_name": "CHAR_领导甲__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\领导甲_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "领导甲"
+      ]
+    },
+    {
+      "asset_id": "CHAR_高阶魔族__v1",
+      "type": "character",
+      "display_name": "高阶魔族",
+      "jimeng_ref_name": "CHAR_高阶魔族__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\高阶魔族_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "高阶魔族"
+      ]
+    },
+    {
+      "asset_id": "CHAR_魔帅__v1",
+      "type": "character",
+      "display_name": "魔帅",
+      "jimeng_ref_name": "CHAR_魔帅__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\魔帅_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "魔帅"
+      ]
+    },
+    {
+      "asset_id": "CHAR_龙军首__v1",
+      "type": "character",
+      "display_name": "龙军首",
+      "jimeng_ref_name": "CHAR_龙军首__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\龙军首_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "龙军首"
+      ]
+    },
+    {
+      "asset_id": "CHAR_龙城士兵_若干__v1",
+      "type": "character",
+      "display_name": "龙城士兵（若干）",
+      "jimeng_ref_name": "CHAR_龙城士兵_若干__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\characters\\龙城士兵（若干）_1.jpg"
+      ],
+      "tags": [
+        "character",
+        "龙城士兵（若干）"
+      ]
+    },
+    {
+      "asset_id": "MON_地狱火傀儡__v1",
+      "type": "monster",
+      "display_name": "地狱火傀儡",
+      "jimeng_ref_name": "MON_地狱火傀儡__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\monsters\\地狱火傀儡_1.jpg"
+      ],
+      "tags": [
+        "monster",
+        "地狱火傀儡"
+      ]
+    },
+    {
+      "asset_id": "MON_幽冥玄鸟_BOSS__v1",
+      "type": "monster",
+      "display_name": "幽冥玄鸟 BOSS",
+      "jimeng_ref_name": "MON_幽冥玄鸟_BOSS__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\monsters\\幽冥玄鸟 BOSS_1.jpg"
+      ],
+      "tags": [
+        "monster",
+        "幽冥玄鸟 BOSS"
+      ]
+    },
+    {
+      "asset_id": "MON_幽灵雷鸟__v1",
+      "type": "monster",
+      "display_name": "幽灵雷鸟",
+      "jimeng_ref_name": "MON_幽灵雷鸟__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\monsters\\幽灵雷鸟_1.jpg"
+      ],
+      "tags": [
+        "monster",
+        "幽灵雷鸟"
+      ]
+    },
+    {
+      "asset_id": "MON_熔岩巨兽__v1",
+      "type": "monster",
+      "display_name": "熔岩巨兽",
+      "jimeng_ref_name": "MON_熔岩巨兽__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\monsters\\熔岩巨兽_1.jpg"
+      ],
+      "tags": [
+        "monster",
+        "熔岩巨兽"
+      ]
+    },
+    {
+      "asset_id": "MON_食尸鬼王__v1",
+      "type": "monster",
+      "display_name": "食尸鬼王",
+      "jimeng_ref_name": "MON_食尸鬼王__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\monsters\\食尸鬼王_1.jpg"
+      ],
+      "tags": [
+        "monster",
+        "食尸鬼王"
+      ]
+    },
+    {
+      "asset_id": "MON_骷髅王__v1",
+      "type": "monster",
+      "display_name": "骷髅王",
+      "jimeng_ref_name": "MON_骷髅王__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\monsters\\骷髅王_1.jpg"
+      ],
+      "tags": [
+        "monster",
+        "骷髅王"
       ]
     },
     {
@@ -20,11 +1062,345 @@
       "display_name": "TestRoom",
       "jimeng_ref_name": "SCENE_TestRoom__v1",
       "files": [
-        "assets/scenes/TestRoom_1.png"
+        "D:\\agent\\video-agent-system\\assets\\scenes\\TestRoom_1.png"
       ],
       "tags": [
         "scene",
-        "testroom"
+        "TestRoom"
+      ]
+    },
+    {
+      "asset_id": "SCENE_别墅全景__v1",
+      "type": "scene",
+      "display_name": "别墅全景",
+      "jimeng_ref_name": "SCENE_别墅全景__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅全景_1.jpg",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅全景_2.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅全景_3.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅全景_4.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅全景_5.png"
+      ],
+      "tags": [
+        "scene",
+        "别墅全景"
+      ]
+    },
+    {
+      "asset_id": "SCENE_别墅后院__v1",
+      "type": "scene",
+      "display_name": "别墅后院",
+      "jimeng_ref_name": "SCENE_别墅后院__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅后院_1.jpg",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅后院_2.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅后院_3.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅后院_4.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅后院_5.png"
+      ],
+      "tags": [
+        "scene",
+        "别墅后院"
+      ]
+    },
+    {
+      "asset_id": "SCENE_别墅大厅__v1",
+      "type": "scene",
+      "display_name": "别墅大厅",
+      "jimeng_ref_name": "SCENE_别墅大厅__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅大厅_1.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅大厅_2.jpg",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅大厅_3.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅大厅_4.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅大厅_5.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\别墅大厅_6.png"
+      ],
+      "tags": [
+        "scene",
+        "别墅大厅"
+      ]
+    },
+    {
+      "asset_id": "SCENE_学校宿舍外道路__v1",
+      "type": "scene",
+      "display_name": "学校宿舍外道路",
+      "jimeng_ref_name": "SCENE_学校宿舍外道路__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校宿舍外道路_1.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校宿舍外道路_2.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校宿舍外道路_3.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校宿舍外道路_4.jpg"
+      ],
+      "tags": [
+        "scene",
+        "学校宿舍外道路"
+      ]
+    },
+    {
+      "asset_id": "SCENE_学校操场__v1",
+      "type": "scene",
+      "display_name": "学校操场",
+      "jimeng_ref_name": "SCENE_学校操场__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校操场_1.jpg",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校操场_2.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校操场_3.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校操场_4.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校操场_5.png"
+      ],
+      "tags": [
+        "scene",
+        "学校操场"
+      ]
+    },
+    {
+      "asset_id": "SCENE_学校组队广场__v1",
+      "type": "scene",
+      "display_name": "学校组队广场",
+      "jimeng_ref_name": "SCENE_学校组队广场__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校组队广场_1.jpg",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校组队广场_2.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校组队广场_3.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校组队广场_4.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校组队广场_5.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校组队广场_6.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\学校组队广场_7.jpg"
+      ],
+      "tags": [
+        "scene",
+        "学校组队广场"
+      ]
+    },
+    {
+      "asset_id": "SCENE_室内训练室__v1",
+      "type": "scene",
+      "display_name": "室内训练室",
+      "jimeng_ref_name": "SCENE_室内训练室__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\室内训练室_1.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\室内训练室_2.jpg",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\室内训练室_3.png"
+      ],
+      "tags": [
+        "scene",
+        "室内训练室"
+      ]
+    },
+    {
+      "asset_id": "SCENE_宿舍__v1",
+      "type": "scene",
+      "display_name": "宿舍",
+      "jimeng_ref_name": "SCENE_宿舍__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\宿舍_1.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\宿舍_2.jpg",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\宿舍_3.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\宿舍_4.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\宿舍_5.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\宿舍_6.png"
+      ],
+      "tags": [
+        "scene",
+        "宿舍"
+      ]
+    },
+    {
+      "asset_id": "SCENE_拍卖会场_不确定__v1",
+      "type": "scene",
+      "display_name": "拍卖会场（不确定）",
+      "jimeng_ref_name": "SCENE_拍卖会场_不确定__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\拍卖会场（不确定）_1.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\拍卖会场（不确定）_2.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\拍卖会场（不确定）_3.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\拍卖会场（不确定）_4.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\拍卖会场（不确定）_5.jpg"
+      ],
+      "tags": [
+        "scene",
+        "拍卖会场（不确定）"
+      ]
+    },
+    {
+      "asset_id": "SCENE_拍卖场门口__v1",
+      "type": "scene",
+      "display_name": "拍卖场门口",
+      "jimeng_ref_name": "SCENE_拍卖场门口__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\拍卖场门口_1.jpg",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\拍卖场门口_2.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\拍卖场门口_3.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\拍卖场门口_4.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\拍卖场门口_5.png"
+      ],
+      "tags": [
+        "scene",
+        "拍卖场门口"
+      ]
+    },
+    {
+      "asset_id": "SCENE_教室侧面__v1",
+      "type": "scene",
+      "display_name": "教室侧面",
+      "jimeng_ref_name": "SCENE_教室侧面__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\教室侧面_1.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\教室侧面_2.png"
+      ],
+      "tags": [
+        "scene",
+        "教室侧面"
+      ]
+    },
+    {
+      "asset_id": "SCENE_教室正面__v1",
+      "type": "scene",
+      "display_name": "教室正面",
+      "jimeng_ref_name": "SCENE_教室正面__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\教室正面_1.jpg"
+      ],
+      "tags": [
+        "scene",
+        "教室正面"
+      ]
+    },
+    {
+      "asset_id": "SCENE_教室背面__v1",
+      "type": "scene",
+      "display_name": "教室背面",
+      "jimeng_ref_name": "SCENE_教室背面__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\教室背面_1.png"
+      ],
+      "tags": [
+        "scene",
+        "教室背面"
+      ]
+    },
+    {
+      "asset_id": "SCENE_教室门口特写__v1",
+      "type": "scene",
+      "display_name": "教室门口特写",
+      "jimeng_ref_name": "SCENE_教室门口特写__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\教室门口特写_1.jpg",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\教室门口特写_2.png"
+      ],
+      "tags": [
+        "scene",
+        "教室门口特写"
+      ]
+    },
+    {
+      "asset_id": "SCENE_教室_偏修炼室__v1",
+      "type": "scene",
+      "display_name": "教室（偏修炼室）",
+      "jimeng_ref_name": "SCENE_教室_偏修炼室__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\教室（偏修炼室）_1.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\教室（偏修炼室）_2.jpg",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\教室（偏修炼室）_3.png"
+      ],
+      "tags": [
+        "scene",
+        "教室（偏修炼室）"
+      ]
+    },
+    {
+      "asset_id": "SCENE_时光屋报名处__v1",
+      "type": "scene",
+      "display_name": "时光屋报名处",
+      "jimeng_ref_name": "SCENE_时光屋报名处__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\时光屋报名处_1.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\时光屋报名处_2.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\时光屋报名处_3.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\时光屋报名处_4.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\时光屋报名处_5.jpg"
+      ],
+      "tags": [
+        "scene",
+        "时光屋报名处"
+      ]
+    },
+    {
+      "asset_id": "SCENE_林氏大厦__v1",
+      "type": "scene",
+      "display_name": "林氏大厦",
+      "jimeng_ref_name": "SCENE_林氏大厦__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\林氏大厦_1.jpg"
+      ],
+      "tags": [
+        "scene",
+        "林氏大厦"
+      ]
+    },
+    {
+      "asset_id": "SCENE_考试结界_黄沙__v1",
+      "type": "scene",
+      "display_name": "考试结界（黄沙）",
+      "jimeng_ref_name": "SCENE_考试结界_黄沙__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\考试结界（黄沙）_1.jpg"
+      ],
+      "tags": [
+        "scene",
+        "考试结界（黄沙）"
+      ]
+    },
+    {
+      "asset_id": "SCENE_街道_偏中世纪__v1",
+      "type": "scene",
+      "display_name": "街道（偏中世纪）",
+      "jimeng_ref_name": "SCENE_街道_偏中世纪__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\街道（偏中世纪）_1.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\街道（偏中世纪）_2.jpg",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\街道（偏中世纪）_3.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\街道（偏中世纪）_4.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\街道（偏中世纪）_5.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\街道（偏中世纪）_6.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\街道（偏中世纪）_7.jpg"
+      ],
+      "tags": [
+        "scene",
+        "街道（偏中世纪）"
+      ]
+    },
+    {
+      "asset_id": "SCENE_走廊__v1",
+      "type": "scene",
+      "display_name": "走廊",
+      "jimeng_ref_name": "SCENE_走廊__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\走廊_1.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\走廊_2.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\走廊_3.png"
+      ],
+      "tags": [
+        "scene",
+        "走廊"
+      ]
+    },
+    {
+      "asset_id": "SCENE_高等战神学院门口__v1",
+      "type": "scene",
+      "display_name": "高等战神学院门口",
+      "jimeng_ref_name": "SCENE_高等战神学院门口__v1",
+      "files": [
+        "D:\\agent\\video-agent-system\\assets\\scenes\\高等战神学院门口_1.jpg",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\高等战神学院门口_2.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\高等战神学院门口_3.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\高等战神学院门口_4.png",
+        "D:\\agent\\video-agent-system\\assets\\scenes\\高等战神学院门口_5.png"
+      ],
+      "tags": [
+        "scene",
+        "高等战神学院门口"
       ]
     }
   ]
