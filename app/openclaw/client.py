@@ -7,6 +7,8 @@ import hashlib
 import json
 import mimetypes
 import os
+import socket
+import time
 import uuid
 from pathlib import Path
 from urllib import error, parse, request
@@ -468,8 +470,7 @@ class OpenClawClient:
 
         image_url = str(first_item.get("url") or "").strip()
         if image_url:
-            with request.urlopen(image_url, timeout=180) as response:
-                output_path.write_bytes(response.read())
+            self._download_image_url(image_url, output_path)
             return image_url
 
         b64_json = str(first_item.get("b64_json") or "").strip()
@@ -481,6 +482,78 @@ class OpenClawClient:
             "第三方图片接口没有返回 url 或 b64_json。",
             response_body=json.dumps(response_payload, ensure_ascii=False),
         )
+
+    def _download_image_url(self, image_url: str, output_path: Path) -> None:
+        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        parsed = parse.urlsplit(image_url)
+        origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
+        referer = f"{origin}/" if origin else image_url
+        common_headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        }
+        header_candidates: list[dict[str, str]] = [
+            {
+                **common_headers,
+                "Authorization": f"Bearer {api_key}",
+                "Referer": referer,
+            },
+            {
+                **common_headers,
+                "Referer": referer,
+            },
+            {
+                **common_headers,
+                "Authorization": f"Bearer {api_key}",
+            },
+        ]
+        if not api_key:
+            for headers in header_candidates:
+                headers.pop("Authorization", None)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        last_error: Exception | None = None
+        last_status_code: int | None = None
+        last_response_body = ""
+
+        for attempt in range(3):
+            for headers in header_candidates:
+                image_request = request.Request(image_url, headers=headers)
+                try:
+                    with request.urlopen(image_request, timeout=300) as response:
+                        with output_path.open("wb") as output_file:
+                            while True:
+                                chunk = response.read(64 * 1024)
+                                if not chunk:
+                                    break
+                                output_file.write(chunk)
+                    if output_path.stat().st_size == 0:
+                        raise SceneAnchorImageError("场景锚点图下载完成但文件为空。", url=image_url)
+                    return
+                except error.HTTPError as exc:
+                    last_error = exc
+                    last_status_code = exc.code
+                    last_response_body = exc.read().decode("utf-8", errors="replace")
+                except (error.URLError, TimeoutError, socket.timeout, OSError) as exc:
+                    last_error = exc
+                    last_status_code = None
+                    last_response_body = str(exc)
+                if output_path.exists():
+                    output_path.unlink(missing_ok=True)
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+
+        if isinstance(last_error, error.HTTPError):
+            raise SceneAnchorImageError(
+                "场景锚点图 URL 下载失败。",
+                url=image_url,
+                status_code=last_status_code,
+                response_body=last_response_body,
+            ) from last_error
+        raise SceneAnchorImageError(
+            f"场景锚点图 URL 下载失败: {last_response_body or last_error}",
+            url=image_url,
+        ) from last_error
 
     def _is_openai_compatible_base_url(self, base_url: str) -> bool:
         normalized = base_url.rstrip("/").lower()

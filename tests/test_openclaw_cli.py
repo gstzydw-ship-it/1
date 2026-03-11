@@ -299,7 +299,21 @@ def test_cli_run_manju_scene_shot_invokes_stable_script_after_anchor_review(monk
             model_name="gemini-2.5-flash",
         )
 
-    def _fake_subprocess(*, project_root, image_path, prompt, output_path, mode, resolution, duration_seconds, aspect_ratio, model_name):
+    def _fake_subprocess(
+        *,
+        project_root,
+        image_path,
+        prompt,
+        output_path,
+        mode,
+        resolution,
+        duration_seconds,
+        aspect_ratio,
+        model_name,
+        project_url="",
+        profile_dir=None,
+        headless=True,
+    ):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(b"video")
         return subprocess.CompletedProcess(
@@ -377,12 +391,29 @@ def test_cli_run_manju_scene_shot_blocks_download_when_video_review_fails(monkey
 
     captured: dict[str, object] = {}
 
-    def _fake_subprocess(*, project_root, image_path, prompt, output_path, mode, resolution, duration_seconds, aspect_ratio, model_name):
+    def _fake_subprocess(
+        *,
+        project_root,
+        image_path,
+        prompt,
+        output_path,
+        mode,
+        resolution,
+        duration_seconds,
+        aspect_ratio,
+        model_name,
+        project_url="",
+        profile_dir=None,
+        headless=True,
+    ):
         captured["duration_seconds"] = duration_seconds
         captured["mode"] = mode
         captured["resolution"] = resolution
         captured["aspect_ratio"] = aspect_ratio
         captured["model_name"] = model_name
+        captured["project_url"] = project_url
+        captured["profile_dir"] = profile_dir
+        captured["headless"] = headless
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(b"video")
         return subprocess.CompletedProcess(

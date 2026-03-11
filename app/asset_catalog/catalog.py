@@ -63,7 +63,7 @@ def build_asset_catalog(assets_dir: Path) -> CatalogBuildResult:
 def load_asset_catalog(catalog_path: Path) -> AssetCatalog:
     """从 catalog.json 加载素材目录。"""
 
-    payload = json.loads(catalog_path.read_text(encoding="utf-8"))
+    payload = json.loads(catalog_path.read_text(encoding="utf-8-sig"))
     assets = [CatalogAsset(**item) for item in payload.get("assets", [])]
     return AssetCatalog(total_assets=payload.get("total_assets", len(assets)), assets=assets)
 

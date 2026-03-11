@@ -11,6 +11,8 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import socket
+import time
 from urllib.parse import urlparse
 import urllib.error
 import urllib.request
@@ -77,6 +79,24 @@ class GeminiVideoAuditClient:
             frame_paths=[str(path) for path in frame_paths],
             temp_video_path=str(temp_video_path),
         )
+
+    def _read_json_response(self, request: urllib.request.Request, *, error_prefix: str) -> str:
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                with urllib.request.urlopen(request, timeout=240) as response:
+                    return response.read().decode("utf-8")
+            except urllib.error.HTTPError as exc:
+                error_body = exc.read().decode("utf-8", errors="replace")
+                raise GeminiAuditError(f"{error_prefix}: HTTP {exc.code} {error_body}") from exc
+            except (urllib.error.URLError, TimeoutError, socket.timeout, OSError) as exc:
+                last_error = exc
+                if attempt < 2:
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                reason = getattr(exc, "reason", exc)
+                raise GeminiAuditError(f"{error_prefix}: {reason}") from exc
+        raise GeminiAuditError(f"{error_prefix}: {last_error}")
 
     def _generate_content(
         self,
@@ -176,14 +196,7 @@ class GeminiVideoAuditClient:
             method="POST",
         )
 
-        try:
-            with urllib.request.urlopen(request, timeout=120) as response:
-                body = response.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            error_body = exc.read().decode("utf-8", errors="replace")
-            raise GeminiAuditError(f"Gemini 请求失败: HTTP {exc.code} {error_body}") from exc
-        except urllib.error.URLError as exc:
-            raise GeminiAuditError(f"Gemini 请求失败: {exc.reason}") from exc
+        body = self._read_json_response(request, error_prefix="Gemini 请求失败")
 
         try:
             payload = json.loads(body)
@@ -268,14 +281,7 @@ class GeminiVideoAuditClient:
             method="POST",
         )
 
-        try:
-            with urllib.request.urlopen(request, timeout=120) as response:
-                body = response.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            error_body = exc.read().decode("utf-8", errors="replace")
-            raise GeminiAuditError(f"Gemini 兼容接口请求失败: HTTP {exc.code} {error_body}") from exc
-        except urllib.error.URLError as exc:
-            raise GeminiAuditError(f"Gemini 兼容接口请求失败: {exc.reason}") from exc
+        body = self._read_json_response(request, error_prefix="Gemini 兼容接口请求失败")
 
         try:
             payload = json.loads(body)

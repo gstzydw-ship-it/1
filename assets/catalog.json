@@ -1,0 +1,31 @@
+{
+  "total_assets": 2,
+  "assets": [
+    {
+      "asset_id": "CHAR_ManjuTest__v1",
+      "type": "character",
+      "display_name": "ManjuTest",
+      "jimeng_ref_name": "CHAR_ManjuTest__v1",
+      "files": [
+        "assets/characters/ManjuTest_1.png"
+      ],
+      "tags": [
+        "character",
+        "manjutest"
+      ]
+    },
+    {
+      "asset_id": "SCENE_TestRoom__v1",
+      "type": "scene",
+      "display_name": "TestRoom",
+      "jimeng_ref_name": "SCENE_TestRoom__v1",
+      "files": [
+        "assets/scenes/TestRoom_1.png"
+      ],
+      "tags": [
+        "scene",
+        "testroom"
+      ]
+    }
+  ]
+}

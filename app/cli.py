@@ -544,7 +544,9 @@ def _build_scene_anchor_prompt(*, character_name: str, scene_name: str, storyboa
         f"动作：{action_text}；"
         "镜头：固定中景；"
         f"约束：保持{character_name}的脸部、发型、服装一致，场景切换为{scene_name}，"
-        "构图稳定，主体清晰，不新增人物，适合作为视频首帧。"
+        "构图稳定，主体清晰，不新增人物，适合作为视频首帧，"
+        "画面中禁止出现文字、字幕、logo、水印、圆形图案和多余界面元素，"
+        "背景墙面干净，不要出现文字或装饰图案。"
     )
 
 
@@ -573,7 +575,8 @@ def _build_manju_video_prompt(*, character_name: str, scene_name: str, storyboar
         f"场景：{scene_name}；"
         f"动作：{action_text}；"
         "镜头：固定中景；"
-        "约束：保持固定机位，构图稳定，不运镜，不切换景别，保持人物脸部、发型、服装和场景结构一致，不新增人物。"
+        "约束：保持固定机位，构图稳定，不运镜，不切换景别，保持人物脸部、发型、服装和场景结构一致，不新增人物，"
+        "画面中禁止出现字幕、文字、logo、水印和多余界面元素，背景墙面干净。"
     )
 
 
@@ -618,6 +621,9 @@ def _run_manju_one_shot_script(
     duration_seconds: int,
     aspect_ratio: str,
     model_name: str,
+    project_url: str = "",
+    profile_dir: Path | None = None,
+    headless: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     """调用已经跑稳的 Manju 单任务脚本。"""
 
@@ -625,17 +631,22 @@ def _run_manju_one_shot_script(
     if not script_path.exists():
         raise typer.BadParameter(f"找不到 Manju 脚本: {script_path}")
 
+    prompt_file = project_root / ".runtime" / "manju-prompts" / "latest_prompt.txt"
+    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    prompt_file.write_text(prompt, encoding="utf-8")
+    script_mode = {"普通模式": "normal", "草稿模式": "draft"}.get(mode, mode)
+
     command = [
         sys.executable,
         str(script_path),
         "--image-path",
         str(image_path),
-        "--prompt",
-        prompt,
+        "--prompt-file",
+        str(prompt_file),
         "--output-path",
         str(output_path),
         "--mode",
-        mode,
+        script_mode,
         "--resolution",
         resolution,
         "--duration-seconds",
@@ -645,6 +656,15 @@ def _run_manju_one_shot_script(
         "--model-name",
         model_name,
     ]
+    if project_url:
+        command.extend(["--project-url", project_url])
+    if profile_dir is not None:
+        command.extend(["--profile-dir", str(profile_dir)])
+    if not headless:
+        command.append("--headed")
+    child_env = os.environ.copy()
+    child_env.setdefault("PYTHONIOENCODING", "utf-8")
+    child_env.setdefault("PYTHONUTF8", "1")
     return subprocess.run(
         command,
         capture_output=True,
@@ -652,6 +672,7 @@ def _run_manju_one_shot_script(
         encoding="utf-8",
         errors="replace",
         cwd=str(project_root),
+        env=child_env,
         check=False,
     )
 
@@ -1152,6 +1173,9 @@ def run_manju_scene_shot(
     manju_mode: str = typer.Option("普通模式", "--manju-mode", help="Manju 模式，默认 普通模式。"),
     manju_resolution: str = typer.Option("1080p", "--manju-resolution", help="Manju 清晰度，默认 1080p。"),
     manju_model_name: str = typer.Option("Seedance1.5-pro", "--manju-model-name", help="Manju 模型名。"),
+    manju_profile_dir: Optional[Path] = typer.Option(None, "--manju-profile-dir", help="可选：指向已登录的 Manju Chrome profile 目录。"),
+    manju_project_url: str = typer.Option("", "--manju-project-url", help="可选：要操作的 Manju 项目 URL。"),
+    manju_headless: bool = typer.Option(True, "--manju-headless/--manju-headed", help="是否使用无头浏览器，需要人工登录时可用 --manju-headed。"),
     anchor_output_path: Optional[Path] = typer.Option(None, "--anchor-output-path", help="锚点图输出路径。"),
     video_output_path: Optional[Path] = typer.Option(None, "--video-output-path", help="视频输出路径。"),
 ) -> None:
@@ -1170,49 +1194,70 @@ def run_manju_scene_shot(
         storyboard_text=storyboard_text,
     )
     service = OpenClawService()
-    try:
-        anchor_response = service.generate_scene_anchor_image(
-            SceneAnchorImageRequest(
-                shot_id=f"manju-scene-{character_asset.display_name}-{scene_asset.display_name}",
-                storyboard_text=storyboard_text,
-                prompt=effective_anchor_prompt,
-                character_reference_paths=[str(character_image_path)],
-                scene_reference_paths=[str(scene_image_path)],
-                model_name=model_name,
-                aspect_ratio=aspect_ratio,
-                output_path=str(anchor_output_path) if anchor_output_path else None,
-            ),
-            project_root=config.project_root,
-        )
-        review_response = service.review_scene_anchor_image(
-            SceneAnchorReviewRequest(
-                shot_id=anchor_response.shot_id,
-                storyboard_text=storyboard_text,
-                prompt=anchor_response.prompt,
-                image_path=anchor_response.output_path,
-                character_name=character_asset.display_name,
-                scene_name=scene_asset.display_name,
-                source_images=anchor_response.source_images,
+    anchor_response = None
+    review_response = None
+    max_anchor_attempts = 3
+    for anchor_attempt in range(1, max_anchor_attempts + 1):
+        try:
+            anchor_response = service.generate_scene_anchor_image(
+                SceneAnchorImageRequest(
+                    shot_id=f"manju-scene-{character_asset.display_name}-{scene_asset.display_name}",
+                    storyboard_text=storyboard_text,
+                    prompt=effective_anchor_prompt,
+                    character_reference_paths=[str(character_image_path)],
+                    scene_reference_paths=[str(scene_image_path)],
+                    model_name=model_name,
+                    aspect_ratio=aspect_ratio,
+                    output_path=str(anchor_output_path) if anchor_output_path else None,
+                ),
+                project_root=config.project_root,
             )
+            review_response = service.review_scene_anchor_image(
+                SceneAnchorReviewRequest(
+                    shot_id=anchor_response.shot_id,
+                    storyboard_text=storyboard_text,
+                    prompt=anchor_response.prompt,
+                    image_path=anchor_response.output_path,
+                    character_name=character_asset.display_name,
+                    scene_name=scene_asset.display_name,
+                    source_images=anchor_response.source_images,
+                )
+            )
+        except (SceneAnchorImageError, SceneAnchorReviewError) as exc:
+            typer.echo("Manju 场景首帧准备失败：", err=True)
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1)
+
+        typer.echo("Manju 场景首帧结果")
+        typer.echo(f"- anchor_attempt: {anchor_attempt}")
+        typer.echo(f"- anchor_image_path: {anchor_response.output_path}")
+        typer.echo(f"- anchor_review_action: {review_response.action}")
+        typer.echo(f"- anchor_review_summary: {review_response.review_summary or '无'}")
+        typer.echo(
+            f"- anchor_review_issues: {', '.join(review_response.selected_issue_ids) if review_response.selected_issue_ids else '无'}"
         )
-    except (SceneAnchorImageError, SceneAnchorReviewError) as exc:
-        typer.echo("Manju 场景首帧准备失败：", err=True)
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1)
+        typer.echo(f"- anchor_prompt_patch: {review_response.prompt_patch or '无'}")
+        typer.echo(f"- anchor_revised_prompt: {review_response.revised_prompt or '无'}")
 
-    typer.echo("Manju 场景首帧结果")
-    typer.echo(f"- anchor_image_path: {anchor_response.output_path}")
-    typer.echo(f"- anchor_review_action: {review_response.action}")
-    typer.echo(f"- anchor_review_summary: {review_response.review_summary or '无'}")
-    typer.echo(
-        f"- anchor_review_issues: {', '.join(review_response.selected_issue_ids) if review_response.selected_issue_ids else '无'}"
-    )
-    typer.echo(f"- anchor_prompt_patch: {review_response.prompt_patch or '无'}")
-    typer.echo(f"- anchor_revised_prompt: {review_response.revised_prompt or '无'}")
+        if review_response.action == "approve":
+            break
+        if anchor_attempt < max_anchor_attempts:
+            if review_response.action == "revise":
+                effective_anchor_prompt = review_response.revised_prompt or _apply_prompt_patch(
+                    anchor_response.prompt,
+                    review_response.prompt_patch,
+                )
+            else:
+                effective_anchor_prompt = review_response.revised_prompt or anchor_response.prompt
+            typer.echo("- anchor_retry: yes")
+            typer.echo(f"- anchor_retry_prompt: {effective_anchor_prompt}")
+            continue
 
-    if review_response.action != "approve":
         typer.echo("图审未通过，本次不会进入 Manju 视频生成。", err=True)
         raise typer.Exit(code=1)
+
+    assert anchor_response is not None
+    assert review_response is not None
 
     effective_video_prompt = video_prompt or _build_manju_video_prompt(
         character_name=character_asset.display_name,
@@ -1225,86 +1270,106 @@ def run_manju_scene_shot(
     )
     review_dir = config.project_root / "outputs" / "reviews" / anchor_response.shot_id
     review_dir.mkdir(parents=True, exist_ok=True)
-    temp_video_output_path = review_dir / f"{anchor_response.shot_id}_manju_raw.mp4"
-    process = _run_manju_one_shot_script(
-        project_root=config.project_root,
-        image_path=Path(anchor_response.output_path),
-        prompt=effective_video_prompt,
-        output_path=temp_video_output_path,
-        mode=manju_mode,
-        resolution=manju_resolution,
-        duration_seconds=effective_duration_seconds,
-        aspect_ratio=aspect_ratio,
-        model_name=manju_model_name,
-    )
-
-    typer.echo("Manju 视频生成结果")
-    typer.echo(f"- video_prompt: {effective_video_prompt}")
-    typer.echo(f"- manju_mode: {manju_mode}")
-    typer.echo(f"- manju_resolution: {manju_resolution}")
-    typer.echo(f"- manju_duration_seconds: {effective_duration_seconds}")
-    typer.echo(f"- manju_aspect_ratio: {aspect_ratio}")
-    typer.echo(f"- manju_model_name: {manju_model_name}")
-    typer.echo(f"- raw_video_path: {temp_video_output_path}")
-    typer.echo(f"- final_video_path: {resolved_video_output_path}")
-    typer.echo(f"- script_exit_code: {process.returncode}")
-    if process.returncode != 0:
-        typer.echo("- status: failed", err=True)
-        if process.stdout.strip():
-            typer.echo("- script_stdout:", err=True)
-            for line in process.stdout.strip().splitlines()[-10:]:
-                typer.echo(f"  - {line}", err=True)
-        if process.stderr.strip():
-            typer.echo("- script_stderr:", err=True)
-            for line in process.stderr.strip().splitlines()[-10:]:
-                typer.echo(f"  - {line}", err=True)
-        raise typer.Exit(code=1)
-
-    if process.stdout.strip():
-        typer.echo("- script_stdout:")
-        for line in process.stdout.strip().splitlines():
-            typer.echo(f"  - {line}")
-    if process.stderr.strip():
-        typer.echo("- script_stderr:")
-        for line in process.stderr.strip().splitlines()[-10:]:
-            typer.echo(f"  - {line}")
-
     report_path = config.project_root / "outputs" / "reviews" / f"{anchor_response.shot_id}_audit.html"
-    review_frames_dir = review_dir / "frames"
-    try:
-        decision = _run_gemini_auto_audit(
-            shot_id=anchor_response.shot_id,
-            storyboard_text=storyboard_text,
-            prompt_main=effective_video_prompt,
-            prompt_negative="",
-            ref_assets_in_order=["@SceneAnchorImage"],
-            report_path=report_path,
-            review_video_path=temp_video_output_path,
-            review_frames_dir=review_frames_dir,
+    max_video_attempts = 3
+
+    for video_attempt in range(1, max_video_attempts + 1):
+        temp_video_output_path = review_dir / f"{anchor_response.shot_id}_manju_raw_attempt_{video_attempt}.mp4"
+        review_frames_dir = review_dir / f"frames_attempt_{video_attempt}"
+        process = _run_manju_one_shot_script(
+            project_root=config.project_root,
+            image_path=Path(anchor_response.output_path),
+            prompt=effective_video_prompt,
+            output_path=temp_video_output_path,
+            mode=manju_mode,
+            resolution=manju_resolution,
+            duration_seconds=effective_duration_seconds,
+            aspect_ratio=aspect_ratio,
+            model_name=manju_model_name,
+            project_url=manju_project_url,
+            profile_dir=manju_profile_dir,
+            headless=manju_headless,
         )
-    except (GeminiAuditError, RuntimeError, typer.BadParameter) as exc:
-        typer.echo("- video_review_action: failed", err=True)
-        typer.echo(f"- video_review_error: {exc}", err=True)
-        raise typer.Exit(code=1)
 
-    typer.echo(f"- video_review_action: {decision.action}")
-    typer.echo(f"- video_review_summary: {decision.review_summary or '无'}")
-    typer.echo(
-        f"- video_review_issues: {', '.join(decision.selected_issue_ids) if decision.selected_issue_ids else '无'}"
-    )
-    typer.echo(f"- video_prompt_patch: {decision.prompt_patch or '无'}")
-    typer.echo(f"- video_revised_prompt: {decision.revised_prompt_main or '无'}")
-    typer.echo(f"- audit_report_path: {report_path}")
+        typer.echo("Manju 视频生成结果")
+        typer.echo(f"- video_attempt: {video_attempt}")
+        typer.echo(f"- video_prompt: {effective_video_prompt}")
+        typer.echo(f"- manju_mode: {manju_mode}")
+        typer.echo(f"- manju_resolution: {manju_resolution}")
+        typer.echo(f"- manju_duration_seconds: {effective_duration_seconds}")
+        typer.echo(f"- manju_aspect_ratio: {aspect_ratio}")
+        typer.echo(f"- manju_model_name: {manju_model_name}")
+        typer.echo(f"- manju_project_url: {manju_project_url or 'default'}")
+        typer.echo(f"- manju_profile_dir: {str(manju_profile_dir) if manju_profile_dir else 'default'}")
+        typer.echo(f"- manju_headless: {'yes' if manju_headless else 'no'}")
+        typer.echo(f"- raw_video_path: {temp_video_output_path}")
+        typer.echo(f"- final_video_path: {resolved_video_output_path}")
+        typer.echo(f"- script_exit_code: {process.returncode}")
+        if process.returncode != 0:
+            typer.echo("- status: failed", err=True)
+            if process.stdout.strip():
+                typer.echo("- script_stdout:", err=True)
+                for line in process.stdout.strip().splitlines()[-10:]:
+                    typer.echo(f"  - {line}", err=True)
+            if process.stderr.strip():
+                typer.echo("- script_stderr:", err=True)
+                for line in process.stderr.strip().splitlines()[-10:]:
+                    typer.echo(f"  - {line}", err=True)
+            raise typer.Exit(code=1)
 
-    if decision.action != "approve":
+        if process.stdout.strip():
+            typer.echo("- script_stdout:")
+            for line in process.stdout.strip().splitlines():
+                typer.echo(f"  - {line}")
+        if process.stderr.strip():
+            typer.echo("- script_stderr:")
+            for line in process.stderr.strip().splitlines()[-10:]:
+                typer.echo(f"  - {line}")
+
+        try:
+            decision = _run_gemini_auto_audit(
+                shot_id=anchor_response.shot_id,
+                storyboard_text=storyboard_text,
+                prompt_main=effective_video_prompt,
+                prompt_negative="",
+                ref_assets_in_order=["@SceneAnchorImage"],
+                report_path=report_path,
+                review_video_path=temp_video_output_path,
+                review_frames_dir=review_frames_dir,
+            )
+        except (GeminiAuditError, RuntimeError, typer.BadParameter) as exc:
+            typer.echo("- video_review_action: failed", err=True)
+            typer.echo(f"- video_review_error: {exc}", err=True)
+            raise typer.Exit(code=1)
+
+        typer.echo(f"- video_review_action: {decision.action}")
+        typer.echo(f"- video_review_summary: {decision.review_summary or '无'}")
+        typer.echo(
+            f"- video_review_issues: {', '.join(decision.selected_issue_ids) if decision.selected_issue_ids else '无'}"
+        )
+        typer.echo(f"- video_prompt_patch: {decision.prompt_patch or '无'}")
+        typer.echo(f"- video_revised_prompt: {decision.revised_prompt_main or '无'}")
+        typer.echo(f"- audit_report_path: {report_path}")
+
+        if decision.action == "approve":
+            resolved_video_output_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(temp_video_output_path, resolved_video_output_path)
+            typer.echo("- status: success")
+            typer.echo("- download_allowed: yes")
+            typer.echo(f"- output_path: {resolved_video_output_path}")
+            return
+
+        if decision.action == "revise" and video_attempt < max_video_attempts:
+            effective_video_prompt = decision.revised_prompt_main or _apply_prompt_patch(
+                effective_video_prompt,
+                decision.prompt_patch,
+            )
+            typer.echo("- video_retry: yes")
+            typer.echo(f"- video_retry_prompt: {effective_video_prompt}")
+            continue
+
         typer.echo("- status: blocked_by_video_review", err=True)
         raise typer.Exit(code=1)
-
-    resolved_video_output_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(temp_video_output_path, resolved_video_output_path)
-    typer.echo("- status: success")
-    typer.echo("- download_allowed: yes")
-    typer.echo(f"- output_path: {resolved_video_output_path}")
 
 
 @app.command("jimeng-dry-run")
