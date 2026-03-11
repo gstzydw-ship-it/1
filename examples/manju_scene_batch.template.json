@@ -1,0 +1,23 @@
+{
+  "workflow_mode": "manju_scene_batch",
+  "character_ref": "CHAR_ManjuTest__v1",
+  "scene_ref": "SCENE_TestRoom__v1",
+  "aspect_ratio": "16:9",
+  "model_name": "nano-banana-2",
+  "manju_mode": "普通模式",
+  "manju_resolution": "1080p",
+  "manju_model_name": "Seedance1.5-pro",
+  "manju_headless": true,
+  "anchor_image_path": "tmp/run_manju_scene_anchor.png",
+  "skip_video_audit": true,
+  "shots": [
+    {
+      "storyboard_id": "scene_001",
+      "storyboard_text": "角色站在室内场景里，镜头稳定，先停顿半秒后轻微抬头看向前方。"
+    },
+    {
+      "storyboard_id": "scene_002",
+      "storyboard_text": "延续上一镜头的站位和机位，角色继续面向前方，轻微抬手示意，动作克制。"
+    }
+  ]
+}
