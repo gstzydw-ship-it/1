@@ -54,6 +54,7 @@ DETAIL_ENTRY_SELECTORS = (
 RESULT_READY_TEXTS = ("再次生成", "重新编辑", "详情信息", "下载")
 RESULT_PENDING_TEXTS = ("生成中", "排队", "队列", "处理中", "预计")
 RESULT_FAILED_TEXTS = ("失败", "异常", "重试")
+LOGIN_REQUIRED_TEXTS = ("同意协议后前往登录", "已阅读并同意用户服务协议", "前往登录")
 
 
 class BrowserSessionProtocol(Protocol):
@@ -111,7 +112,7 @@ class PlaywrightBrowserSession:
                 continue
 
     def enter_video_reference_mode(self, selectors: JimengSelectors) -> bool:
-        if self._is_generate_page():
+        if self._is_generate_page(selectors):
             return True
 
         for selector in selectors.video_entry_buttons:
@@ -119,11 +120,11 @@ class PlaywrightBrowserSession:
             try:
                 locator.click(timeout=5000)
                 self._page.wait_for_timeout(4000)
-                if self._is_generate_page():
+                if self._is_generate_page(selectors):
                     return True
             except Exception:
                 continue
-        return self._is_generate_page()
+        return self._is_generate_page(selectors)
 
     def fill_prompt(self, selectors: JimengSelectors, prompt_main: str) -> bool:
         locator = self._first_visible_locator(selectors.prompt_inputs)
@@ -254,6 +255,9 @@ class PlaywrightBrowserSession:
         while deadline is None or time.time() < deadline:
             body_text = self._safe_body_text()
 
+            if any(keyword in body_text for keyword in LOGIN_REQUIRED_TEXTS):
+                return False, "login_required"
+
             new_video_src = self._find_new_video_src()
             if new_video_src:
                 self._latest_generated_video_src = new_video_src
@@ -369,8 +373,26 @@ class PlaywrightBrowserSession:
                 continue
         return False
 
-    def _is_generate_page(self) -> bool:
-        return "ai-tool/generate" in self._page.url and "omniReference" in self._page.url
+    def _is_generate_page(self, selectors: JimengSelectors) -> bool:
+        prompt_locator = self._first_visible_locator(self._configured_prompt_markers(selectors))
+        if prompt_locator is None:
+            return False
+
+        file_input_locator = self._first_attached_locator(
+            self._configured_reference_markers(selectors),
+            timeout_ms=1500,
+        )
+        if file_input_locator is not None:
+            return True
+
+        body_text = self._safe_body_text()
+        return "全能参考" in body_text or "Seedance 2.0" in body_text
+
+    def _configured_prompt_markers(self, selectors: JimengSelectors) -> tuple[str, ...]:
+        return selectors.prompt_inputs + selectors.page_ready_markers
+
+    def _configured_reference_markers(self, selectors: JimengSelectors) -> tuple[str, ...]:
+        return selectors.reference_file_inputs + selectors.reference_mode_markers
 
     def _count_ready_markers(self) -> int:
         self._ensure_started()
@@ -472,7 +494,11 @@ class JimengWebOperator:
 
     def upload_reference_assets(self, reference_file_paths: list[Path]) -> list[str]:
         self.logger.info("开始上传参考图，共 %s 个文件。", len(reference_file_paths))
-        names = self._ensure_session().upload_reference_files(self.selectors, reference_file_paths)
+        names: list[str] = []
+        session = self._ensure_session()
+        for index, path in enumerate(reference_file_paths, start=1):
+            session.upload_reference_files(self.selectors, [path])
+            names.append(f"图片{index}")
         self.logger.info("参考图上传完成，生成引用名: %s", names)
         return names
 
@@ -597,6 +623,8 @@ class JimengWebOperator:
             )
             messages.append(f"轮询生成结果步骤已执行，状态: {poll_status}")
             if not result.generation_completed:
+                if poll_status == "login_required":
+                    return self._fail_result(result, "需要登录", "即梦当前浏览器会话需要先登录，提交后页面弹出了登录门槛。")
                 return self._fail_result(result, "轮询结果", f"轮询生成结果失败: {poll_status}")
 
             result.ready_for_download = True
@@ -642,6 +670,8 @@ class JimengWebOperator:
             )
             messages.append(f"轮询生成结果步骤已执行，状态: {result.poll_status}")
             if not result.generation_completed:
+                if result.poll_status == "login_required":
+                    return self._fail_watch_result(result, "需要登录", "即梦当前浏览器会话需要先登录，监视过程中检测到了登录门槛。")
                 return self._fail_watch_result(
                     result,
                     "轮询结果",

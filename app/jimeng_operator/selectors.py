@@ -30,6 +30,8 @@ DEFAULT_JIMENG_SELECTORS = JimengSelectors(
     ),
     page_ready_markers=(
         "div[role='textbox'][contenteditable='true']",
+        "textarea.prompt-textarea-l5tJNE",
+        "textarea[placeholder*='Seedance 2.0']",
         "input[type='file'].file-input-OfqonL",
     ),
     prompt_inputs=(
@@ -40,6 +42,8 @@ DEFAULT_JIMENG_SELECTORS = JimengSelectors(
     reference_mode_markers=(
         "text=全能参考",
         "text=Seedance 2.0",
+        "textarea.prompt-textarea-l5tJNE",
+        "textarea[placeholder*='Seedance 2.0']",
         "input[type='file'].file-input-OfqonL",
     ),
     reference_file_inputs=(
