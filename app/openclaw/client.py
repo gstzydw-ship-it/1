@@ -24,6 +24,8 @@ from app.openclaw.models import (
     PromptComposerResponse,
     SceneAnchorImageRequest,
     SceneAnchorImageResponse,
+    SceneFeatureExtractionRequest,
+    SceneFeatureExtractionResponse,
     SceneAnchorReviewRequest,
     SceneAnchorReviewResponse,
 )
@@ -49,6 +51,10 @@ class SceneAnchorImageError(RuntimeError):
 
 class SceneAnchorReviewError(RuntimeError):
     """场景锚点图审查失败。"""
+
+
+class SceneFeatureExtractionError(RuntimeError):
+    """场景建筑特征提取失败。"""
 
 
 def _first_non_empty_env(*names: str, default: str = "") -> str:
@@ -193,6 +199,7 @@ class OpenClawClient:
                 *request_model.scene_reference_paths,
                 *request_model.character_reference_paths,
                 *request_model.extra_reference_paths,
+                *request_model.continuity_reference_paths,
             ]
             if path
         ]
@@ -204,6 +211,7 @@ class OpenClawClient:
             character_images=[Path(path) for path in request_model.character_reference_paths if path],
             scene_images=[Path(path) for path in request_model.scene_reference_paths if path],
             extra_images=[Path(path) for path in request_model.extra_reference_paths if path],
+            continuity_images=[Path(path) for path in request_model.continuity_reference_paths if path],
             output_path=output_path,
         )
         if reference_board_path is not None:
@@ -237,9 +245,10 @@ class OpenClawClient:
         character_images: list[Path],
         scene_images: list[Path],
         extra_images: list[Path],
+        continuity_images: list[Path],
         output_path: Path,
     ) -> Path | None:
-        source_images = [*character_images, *scene_images, *extra_images]
+        source_images = [*character_images, *scene_images, *extra_images, *continuity_images]
         if len(source_images) <= 1:
             return None
 
@@ -268,7 +277,7 @@ class OpenClawClient:
                 scene_fill = ImageOps.fit(scene_rgb, (right_width, canvas_height - margin * 2), method=Image.Resampling.LANCZOS)
                 canvas.paste(scene_fill, (margin + left_width + gap, margin))
 
-        side_images = [*character_images, *extra_images]
+        side_images = [*character_images, *extra_images, *continuity_images]
         if not side_images:
             side_images = source_images
         card_height = (canvas_height - margin * 2 - gap * (len(side_images) - 1)) // len(side_images)
@@ -340,6 +349,69 @@ class OpenClawClient:
             revised_prompt=revised_prompt if prompt_patch else "",
             model_name=model_name,
         )
+
+    def extract_scene_features(self, request_model: SceneFeatureExtractionRequest) -> SceneFeatureExtractionResponse:
+        """从参考图中提取稳定的建筑、空间与机位线索。"""
+
+        api_key, base_url, model_name = get_scene_anchor_review_api_config()
+        if not api_key:
+            raise SceneFeatureExtractionError(
+                "缺少场景特征提取密钥，请先配置 SCENE_ANCHOR_REVIEW_API_KEY，或继续使用兼容的 GEMINI_API_KEY。"
+            )
+
+        image_paths = [Path(path) for path in request_model.image_paths if path]
+        if not image_paths:
+            raise SceneFeatureExtractionError("至少需要一张场景参考图或母图。")
+        for image_path in image_paths:
+            if not image_path.exists():
+                raise SceneFeatureExtractionError(f"找不到场景参考图: {image_path}")
+
+        if self._is_openai_compatible_base_url(base_url):
+            response_text = self._extract_scene_features_openai_compatible(
+                base_url=base_url,
+                api_key=api_key,
+                model_name=model_name,
+                request_model=request_model,
+                image_paths=image_paths,
+            )
+        else:
+            response_text = self._extract_scene_features_gemini_native(
+                base_url=base_url,
+                api_key=api_key,
+                model_name=model_name,
+                request_model=request_model,
+                image_paths=image_paths,
+            )
+
+        try:
+            payload = json.loads(response_text)
+        except json.JSONDecodeError as exc:
+            raise SceneFeatureExtractionError(f"场景特征提取返回的 JSON 无法解析: {exc}") from exc
+
+        response = SceneFeatureExtractionResponse(
+            scene_name=request_model.scene_name,
+            architecture_style=str(payload.get("architecture_style", "")).strip(),
+            layout_summary=str(payload.get("layout_summary", "")).strip(),
+            anchor_landmarks=[
+                str(item).strip()
+                for item in payload.get("anchor_landmarks", [])
+                if isinstance(item, str) and str(item).strip()
+            ],
+            preserved_elements=[
+                str(item).strip()
+                for item in payload.get("preserved_elements", [])
+                if isinstance(item, str) and str(item).strip()
+            ],
+            forbidden_elements=[
+                str(item).strip()
+                for item in payload.get("forbidden_elements", [])
+                if isinstance(item, str) and str(item).strip()
+            ],
+            camera_guidance=str(payload.get("camera_guidance", "")).strip(),
+            model_name=model_name,
+        )
+        response.scene_signature_text = self._compose_scene_signature_text(response)
+        return response
 
     def _post_image_edit_request(
         self,
@@ -520,9 +592,157 @@ class OpenClawClient:
         try:
             payload = json.loads(body)
             content = payload["choices"][0]["message"]["content"]
-            return self._normalize_openai_compatible_content(content)
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
             raise SceneAnchorReviewError(f"场景锚点图审查返回结构异常: {body}") from exc
+        return self._normalize_openai_compatible_content(content)
+
+    def _extract_scene_features_gemini_native(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        model_name: str,
+        request_model: SceneFeatureExtractionRequest,
+        image_paths: list[Path],
+    ) -> str:
+        prompt_text = self._build_scene_feature_extraction_prompt(request_model)
+        parts: list[dict[str, object]] = [{"text": prompt_text}]
+        for image_path in image_paths:
+            mime_type = mimetypes.guess_type(image_path.name)[0] or "image/png"
+            encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
+            parts.append(
+                {
+                    "inline_data": {
+                        "mime_type": mime_type,
+                        "data": encoded,
+                    }
+                }
+            )
+        payload = {
+            "contents": [{"parts": parts}],
+            "generationConfig": {
+                "temperature": 0.2,
+                "responseMimeType": "application/json",
+                "responseSchema": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "architecture_style": {"type": "STRING"},
+                        "layout_summary": {"type": "STRING"},
+                        "anchor_landmarks": {"type": "ARRAY", "items": {"type": "STRING"}},
+                        "preserved_elements": {"type": "ARRAY", "items": {"type": "STRING"}},
+                        "forbidden_elements": {"type": "ARRAY", "items": {"type": "STRING"}},
+                        "camera_guidance": {"type": "STRING"},
+                    },
+                    "required": [
+                        "architecture_style",
+                        "layout_summary",
+                        "anchor_landmarks",
+                        "preserved_elements",
+                        "forbidden_elements",
+                        "camera_guidance",
+                    ],
+                },
+            },
+        }
+        url = f"{base_url.rstrip('/')}/models/{model_name}:generateContent?key={api_key}"
+        http_request = request.Request(
+            url,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with request.urlopen(http_request, timeout=120) as response:
+                body = response.read().decode("utf-8")
+        except error.HTTPError as exc:
+            response_body = exc.read().decode("utf-8", errors="replace")
+            raise SceneFeatureExtractionError(f"场景特征提取失败: HTTP {exc.code} {response_body}") from exc
+        except error.URLError as exc:
+            raise SceneFeatureExtractionError(f"场景特征提取失败: {exc.reason}") from exc
+
+        try:
+            payload = json.loads(body)
+            return payload["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+            raise SceneFeatureExtractionError(f"场景特征提取返回结构异常: {body}") from exc
+
+    def _extract_scene_features_openai_compatible(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        model_name: str,
+        request_model: SceneFeatureExtractionRequest,
+        image_paths: list[Path],
+    ) -> str:
+        prompt_text = self._build_scene_feature_extraction_prompt(request_model)
+        content: list[dict[str, object]] = [{"type": "text", "text": prompt_text}]
+        for image_path in image_paths:
+            mime_type = mimetypes.guess_type(image_path.name)[0] or "image/png"
+            encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime_type};base64,{encoded}"},
+                }
+            )
+        payload = {
+            "model": model_name,
+            "messages": [{"role": "user", "content": content}],
+            "temperature": 0.2,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "scene_feature_extraction",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "architecture_style": {"type": "string"},
+                            "layout_summary": {"type": "string"},
+                            "anchor_landmarks": {"type": "array", "items": {"type": "string"}},
+                            "preserved_elements": {"type": "array", "items": {"type": "string"}},
+                            "forbidden_elements": {"type": "array", "items": {"type": "string"}},
+                            "camera_guidance": {"type": "string"},
+                        },
+                        "required": [
+                            "architecture_style",
+                            "layout_summary",
+                            "anchor_landmarks",
+                            "preserved_elements",
+                            "forbidden_elements",
+                            "camera_guidance",
+                        ],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+        }
+        url = self._resolve_openai_compatible_url(base_url)
+        http_request = request.Request(
+            url,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            method="POST",
+        )
+        try:
+            with request.urlopen(http_request, timeout=120) as response:
+                body = response.read().decode("utf-8")
+        except error.HTTPError as exc:
+            response_body = exc.read().decode("utf-8", errors="replace")
+            raise SceneFeatureExtractionError(f"场景特征提取失败: HTTP {exc.code} {response_body}") from exc
+        except error.URLError as exc:
+            raise SceneFeatureExtractionError(f"场景特征提取失败: {exc.reason}") from exc
+
+        try:
+            payload = json.loads(body)
+            content = payload["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+            raise SceneFeatureExtractionError(f"场景特征提取返回结构异常: {body}") from exc
+        return self._normalize_openai_compatible_content(content)
 
     def _build_multipart_body(
         self,
@@ -730,6 +950,49 @@ JSON 字段要求：
 - blur_or_low_readability
 - first_frame_unusable
 """
+
+    def _build_scene_feature_extraction_prompt(self, request_model: SceneFeatureExtractionRequest) -> str:
+        image_count = len(request_model.image_paths)
+        return f"""你是一名场景美术与分镜连续性分析师。请只关注场景建筑、道路、立面、材质、空间朝向与稳定地标，忽略人物、宠物、路人、车辆和瞬时光效。
+
+当前目标：
+- 场景名称：{request_model.scene_name}
+- 输入图片数量：{image_count}
+- 连续性说明：{request_model.continuity_note or "无"}
+
+任务要求：
+1. 提炼这个场景跨视角也必须保留的建筑风格与立面特征
+2. 提炼道路走向、建筑高低关系、透视结构、空间层次
+3. 指出最稳定的地标元素，供后续“同场景异视角”生成时锁定
+4. 列出必须保留的场景元素
+5. 列出必须避免的错误元素，例如现代/古典混搭、错误招牌、错误装饰、错误路灯形式等
+6. 给一句简短机位建议，帮助生成同地点的另一视角场景图
+
+只输出 JSON，不要输出额外解释。
+JSON 字段要求：
+- architecture_style: 1 句话概括建筑风格
+- layout_summary: 1 到 2 句话概括道路、建筑朝向、层次与透视
+- anchor_landmarks: 2 到 6 个稳定地标
+- preserved_elements: 2 到 8 个必须保留的元素
+- forbidden_elements: 2 到 8 个必须避免的元素
+- camera_guidance: 1 句话说明适合怎样切到另一视角
+"""
+
+    def _compose_scene_signature_text(self, response: SceneFeatureExtractionResponse) -> str:
+        parts: list[str] = []
+        if response.architecture_style:
+            parts.append(f"建筑风格：{response.architecture_style}")
+        if response.layout_summary:
+            parts.append(f"空间结构：{response.layout_summary}")
+        if response.anchor_landmarks:
+            parts.append(f"稳定地标：{', '.join(response.anchor_landmarks)}")
+        if response.preserved_elements:
+            parts.append(f"必须保留：{', '.join(response.preserved_elements)}")
+        if response.forbidden_elements:
+            parts.append(f"必须避免：{', '.join(response.forbidden_elements)}")
+        if response.camera_guidance:
+            parts.append(f"机位建议：{response.camera_guidance}")
+        return "；".join(parts)
 
     def _build_cache_key(self, skill_name: str, request_model: BaseModel) -> str:
         payload = {

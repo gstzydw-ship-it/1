@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 
 import app.cli as cli_module
 from app.cli import app
-from app.openclaw.models import SceneAnchorImageResponse, SceneAnchorReviewResponse
+from app.openclaw.models import SceneAnchorImageResponse, SceneAnchorReviewResponse, SceneFeatureExtractionResponse
 
 runner = CliRunner()
 
@@ -215,6 +215,83 @@ def test_cli_generate_scene_anchor_supports_auto_review(monkeypatch, tmp_path: P
     assert "- auto_review:" in result.stdout
     assert "action: approve" in result.stdout
     assert "人物和场景稳定，可直接作为首帧。" in result.stdout
+
+
+def test_cli_generate_scene_variant_reference_outputs_features_and_image(monkeypatch, tmp_path: Path) -> None:
+    _write_catalog(tmp_path)
+    monkeypatch.setattr(cli_module, "get_config", lambda: SimpleNamespace(project_root=tmp_path))
+
+    continuity_ref = tmp_path / "transition.jpg"
+    continuity_ref.write_bytes(b"transition")
+    captured: dict[str, object] = {}
+
+    def _fake_extract(self, request_model):
+        captured["feature_request"] = request_model
+        return SceneFeatureExtractionResponse(
+            scene_name="古城门",
+            architecture_style="古典城门与灰砖城墙风格统一",
+            layout_summary="城门居中，道路朝城门方向收束，两侧城墙延展。",
+            anchor_landmarks=["古城门门洞", "灰砖城墙", "石板道路"],
+            preserved_elements=["灰砖立面", "门洞比例", "石板路走向"],
+            forbidden_elements=["现代商铺", "霓虹灯牌"],
+            camera_guidance="可切到斜侧面中景，保留城门与道路透视。",
+            scene_signature_text="建筑风格：古典城门与灰砖城墙风格统一；空间结构：城门居中，道路朝城门方向收束，两侧城墙延展。",
+            model_name="gemini-2.5-flash",
+        )
+
+    def _fake_generate(self, request_model, *, project_root=None):
+        captured["image_request"] = request_model
+        output_path = tmp_path / "outputs" / "images" / "scene_variant.png"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"scene-variant")
+        return SceneAnchorImageResponse(
+            shot_id=request_model.shot_id,
+            prompt=request_model.prompt,
+            model_name=request_model.model_name,
+            aspect_ratio=request_model.aspect_ratio,
+            output_path=str(output_path),
+            source_images=[*request_model.scene_reference_paths, *request_model.continuity_reference_paths],
+        )
+
+    monkeypatch.setattr(cli_module.OpenClawService, "extract_scene_features", _fake_extract)
+    monkeypatch.setattr(cli_module.OpenClawService, "generate_scene_anchor_image", _fake_generate)
+
+    result = runner.invoke(
+        app,
+        [
+            "generate-scene-variant-reference",
+            "--scene-ref",
+            "古城门",
+            "--continuity-ref-image",
+            str(continuity_ref),
+            "--shot-size",
+            "侧面中景",
+            "--camera-angle",
+            "斜侧面",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Scene Variant Reference 生成结果" in result.stdout
+    assert "architecture_style: 古典城门与灰砖城墙风格统一" in result.stdout
+    assert "scene_variant.png" in result.stdout
+    image_request = captured["image_request"]
+    assert len(image_request.scene_reference_paths) == 1
+    assert image_request.continuity_reference_paths == [str(continuity_ref.resolve())]
+
+
+def test_build_scene_variant_reference_prompt_enforces_clean_signage_and_off_axis_view() -> None:
+    prompt = cli_module._build_scene_variant_reference_prompt(
+        scene_name="学校宿舍外道路",
+        variant_intent="生成同一场景的侧后方纯场景参考图",
+        shot_size="中景",
+        camera_angle="侧后方",
+        scene_signature_text="建筑风格：现代玻璃楼与哥特教学楼并列；空间结构：道路沿前进方向延伸。",
+    )
+
+    assert "灯杆刻字" in prompt
+    assert "不要回到正中对称的一消点画面" in prompt
+    assert "所有路灯、路牌、建筑立柱、墙面和地面都必须保持纯净" in prompt
 
 
 def test_estimate_manju_duration_seconds_prefers_short_locked_shots() -> None:

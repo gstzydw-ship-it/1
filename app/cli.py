@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -39,6 +40,8 @@ from app.openclaw import (
     PromptComposerRequest,
     SceneAnchorImageError,
     SceneAnchorImageRequest,
+    SceneFeatureExtractionError,
+    SceneFeatureExtractionRequest,
     SceneAnchorReviewError,
     SceneAnchorReviewRequest,
 )
@@ -628,6 +631,124 @@ def _resolve_extra_reference_images(project_root: Path, queries: Sequence[str]) 
     return resolved
 
 
+def _resolve_existing_image_paths(raw_paths: Sequence[Path | str]) -> list[Path]:
+    resolved: list[Path] = []
+    seen: set[Path] = set()
+    for raw_path in raw_paths:
+        if not raw_path:
+            continue
+        candidate = Path(raw_path).resolve()
+        if not candidate.exists():
+            raise typer.BadParameter(f"找不到图片文件：{candidate}")
+        if candidate not in seen:
+            resolved.append(candidate)
+            seen.add(candidate)
+    return resolved
+
+
+def _strip_parenthetical_text(text: str) -> str:
+    cleaned = re.sub(r"（[^）]*）", "", text)
+    cleaned = re.sub(r"\([^)]*\)", "", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _build_visual_story_action_text(
+    *,
+    storyboard_text: str,
+    character_name: str,
+    extra_subject_names: Sequence[str] = (),
+) -> str:
+    text = _strip_parenthetical_text(storyboard_text.strip())
+    if not text:
+        if extra_subject_names:
+            return f"{character_name}与{', '.join(extra_subject_names)}稳定入镜"
+        return f"{character_name}稳定入镜"
+
+    segments = [segment.strip("，, ") for segment in re.split(r"[。！？；]", text) if segment.strip("，, ")]
+    visual_segments: list[str] = []
+    for segment in segments:
+        lowered = segment.casefold()
+        if "内心os" in lowered or lowered.endswith("os"):
+            continue
+        if "：" in segment or ":" in segment:
+            speaker, _, _ = segment.replace(":", "：").partition("：")
+            speaker = speaker.strip()
+            if "内心OS" in speaker or "内心os" in speaker.casefold() or speaker.casefold().endswith("os"):
+                continue
+            if speaker:
+                visual_segments.append(f"{speaker}口型轻动，但画面中不出现任何文字")
+            continue
+        visual_segments.append(segment)
+
+    if not visual_segments:
+        if extra_subject_names:
+            return f"{character_name}与{', '.join(extra_subject_names)}稳定入镜"
+        return f"{character_name}稳定入镜"
+
+    return "，".join(visual_segments)
+
+
+def _compose_shot_design_text(
+    *,
+    shot_size: str = "",
+    camera_angle: str = "",
+    camera_focus: str = "",
+    cut_reason: str = "",
+) -> str:
+    parts: list[str] = []
+    if shot_size:
+        parts.append(shot_size)
+    if camera_angle:
+        parts.append(camera_angle)
+    if camera_focus:
+        parts.append(f"重点表现{camera_focus}")
+    if cut_reason:
+        parts.append(f"切换目的：{cut_reason}")
+    return "，".join(parts)
+
+
+def _build_continuity_reference_text(
+    *,
+    continuity_reference_enabled: bool,
+    continuity_note: str = "",
+) -> str:
+    if not continuity_reference_enabled:
+        return ""
+    if continuity_note:
+        return f"以连续性母图为参考，延续上一镜头的身份、服装、动作收势和空间朝向；上一镜头摘要：{continuity_note}；"
+    return "以连续性母图为参考，延续上一镜头的身份、服装、动作收势、行进方向和空间朝向；"
+
+
+def _build_scene_variant_reference_prompt(
+    *,
+    scene_name: str,
+    variant_intent: str,
+    shot_size: str,
+    camera_angle: str,
+    scene_signature_text: str,
+) -> str:
+    composition_hint = "使用明显偏轴构图，不要正中对称的一消点画面。"
+    normalized_angle = (camera_angle or "").strip()
+    if any(keyword in normalized_angle for keyword in ("侧", "斜", "后")):
+        composition_hint = (
+            "机位必须真实切到异侧视角，使用偏轴构图，让道路透视从画面一侧向远处延伸，"
+            "不要回到正中对称的一消点画面。"
+        )
+    return (
+        f"主体：纯场景参考图，不出现人物、动物和车辆特写；"
+        f"场景：{scene_name}；"
+        f"目标：{variant_intent}；"
+        f"镜头：固定机位，{shot_size or '中景'}，{camera_angle or '斜侧面'}；"
+        f"建筑与空间特征：{scene_signature_text or f'严格保持{scene_name}的建筑风格、道路布局和空间朝向一致'}；"
+        f"构图要求：{composition_hint}"
+        "约束：这是同一地点的异视角场景参考图，只允许改变观察方向与构图，不允许改地点、不允许改建筑风格、"
+        "不允许混入现代与古典两套建筑；"
+        "建筑立面、道路走向、透视层次和稳定地标必须一致，禁止任何文字、字母、数字、logo、水印、招牌字、"
+        "路牌字、门牌号、灯杆刻字、墙面标语、悬挂横幅、对话框和多余装饰图案；"
+        "所有路灯、路牌、建筑立柱、墙面和地面都必须保持纯净，不出现可读标识，画面干净，适合作为后续人物镜头的场景参考。"
+    )
+
+
 def _build_continuity_requirements(
     sample: dict[str, str],
     *,
@@ -652,10 +773,30 @@ def _build_scene_anchor_prompt(
     scene_name: str,
     storyboard_text: str,
     extra_subject_names: Sequence[str] = (),
+    shot_size: str = "",
+    camera_angle: str = "",
+    camera_focus: str = "",
+    cut_reason: str = "",
+    continuity_reference_enabled: bool = False,
+    continuity_note: str = "",
 ) -> str:
     """为换场景首帧锚点图生成一版稳定、简洁的提示词。"""
 
-    action_text = storyboard_text.strip() or f"{character_name}在新场景中稳定就位"
+    action_text = _build_visual_story_action_text(
+        storyboard_text=storyboard_text,
+        character_name=character_name,
+        extra_subject_names=extra_subject_names,
+    )
+    shot_design_text = _compose_shot_design_text(
+        shot_size=shot_size,
+        camera_angle=camera_angle,
+        camera_focus=camera_focus,
+        cut_reason=cut_reason,
+    )
+    continuity_text = _build_continuity_reference_text(
+        continuity_reference_enabled=continuity_reference_enabled,
+        continuity_note=continuity_note,
+    )
     extra_subject_text = f"附加主体：{', '.join(extra_subject_names)}；" if extra_subject_names else ""
     stability_text = (
         f"同时保持{', '.join(extra_subject_names)}的外形、数量和空间关系稳定，"
@@ -672,13 +813,14 @@ def _build_scene_anchor_prompt(
         f"{extra_subject_text}"
         f"场景：{scene_name}；"
         f"动作：{action_text}；"
-        "镜头：固定中近景，以主角上半身到膝上构图为主，避免远景；"
+        f"镜头：固定机位，{shot_design_text or '中近景，以主角上半身到膝上构图为主'}，避免远景；"
         f"约束：保持{character_name}的脸部、发型、服装一致，场景切换为{scene_name}，"
         f"必须以场景参考图中的道路布局、建筑朝向、透视关系和空间层次为绝对基准，"
+        f"{continuity_text}"
         f"{stability_text}"
         f"{companion_framing_text}"
         "构图稳定，主体清晰，不新增人物，背景人物如必须出现只能远景弱化且不可抢画面，适合作为视频首帧，"
-        "画面中禁止出现文字、字幕、logo、水印、圆形图案和多余界面元素，"
+        "画面中禁止出现任何文字、字幕、logo、水印、路牌字、招牌字、对话框、气泡、内心独白气泡和多余界面元素，"
         "背景墙面干净，不要出现文字或装饰图案。"
     )
 
@@ -705,10 +847,30 @@ def _build_manju_video_prompt(
     scene_name: str,
     storyboard_text: str,
     extra_subject_names: Sequence[str] = (),
+    shot_size: str = "",
+    camera_angle: str = "",
+    camera_focus: str = "",
+    cut_reason: str = "",
+    continuity_reference_enabled: bool = False,
+    continuity_note: str = "",
 ) -> str:
     """为 Manju 首帧模式生成一版简短、固定镜头的视频提示词。"""
 
-    action_text = storyboard_text.strip() or f"{character_name}在{scene_name}中保持稳定动作"
+    action_text = _build_visual_story_action_text(
+        storyboard_text=storyboard_text,
+        character_name=character_name,
+        extra_subject_names=extra_subject_names,
+    )
+    shot_design_text = _compose_shot_design_text(
+        shot_size=shot_size,
+        camera_angle=camera_angle,
+        camera_focus=camera_focus,
+        cut_reason=cut_reason,
+    )
+    continuity_text = _build_continuity_reference_text(
+        continuity_reference_enabled=continuity_reference_enabled,
+        continuity_note=continuity_note,
+    )
     extra_subject_text = f"附加主体：{', '.join(extra_subject_names)}；" if extra_subject_names else ""
     stability_text = (
         f"保持{', '.join(extra_subject_names)}外形稳定、数量正确、位置关系连续，不畸形、不穿模、不中途消失；"
@@ -716,21 +878,22 @@ def _build_manju_video_prompt(
         else ""
     )
     framing_text = (
-        f"使用固定中近景，让{character_name}脸部在画面中清晰可辨，{', '.join(extra_subject_names)}完整入镜并与主角保持稳定距离；"
+        f"使用固定机位的{shot_size or '中近景'}，让{character_name}脸部在画面中清晰可辨，{', '.join(extra_subject_names)}完整入镜并与主角保持稳定距离；"
         if extra_subject_names
-        else f"使用固定中近景，让{character_name}脸部在画面中清晰可辨；"
+        else f"使用固定机位的{shot_size or '中近景'}，让{character_name}脸部在画面中清晰可辨；"
     )
     return (
         f"主体：{character_name}；"
         f"{extra_subject_text}"
         f"场景：{scene_name}；"
         f"动作：{action_text}；"
-        "镜头：固定中近景，避免远景小人；"
+        f"镜头：固定机位，{shot_design_text or '中近景'}，避免远景小人；"
         "约束：保持固定机位，构图稳定，不运镜，不切换景别，保持人物脸部、发型、服装和场景结构一致，不新增人物，"
+        f"{continuity_text}"
         f"{framing_text}"
         f"{stability_text}"
         "如果背景路人出现，只能作为远景弱化轮廓，不允许中景清晰露脸但面部崩坏；"
-        "画面中禁止出现字幕、文字、logo、水印和多余界面元素，背景墙面干净。"
+        "画面中禁止出现任何文字、字幕、logo、水印、路牌字、招牌字、对话框、气泡、内心独白气泡和多余界面元素，背景墙面干净。"
     )
 
 
@@ -1348,7 +1511,22 @@ def test_prompt_composer(
 def generate_scene_anchor(
     character_ref: str = typer.Option(..., "--character-ref", help="角色参考，可传 display_name、asset_id 或 jimeng_ref_name。"),
     scene_ref: str = typer.Option(..., "--scene-ref", help="场景参考，可传 display_name、asset_id 或 jimeng_ref_name。"),
+    scene_variant_ref_image: list[Path] = typer.Option(
+        [],
+        "--scene-variant-ref-image",
+        help="可选：同场景异视角参考图，可多次传入，会与主场景参考一起用于出图。",
+    ),
     storyboard_text: str = typer.Option("", "--storyboard-text", help="换场景镜头摘要，可选。"),
+    continuity_ref_image: Optional[Path] = typer.Option(
+        None,
+        "--continuity-ref-image",
+        help="可选：上一镜头母图/承接帧，只用于连续性参考，会重新生成新视角首帧图。",
+    ),
+    continuity_note: str = typer.Option("", "--continuity-note", help="可选：上一镜头连续性说明。"),
+    shot_size: str = typer.Option("", "--shot-size", help="可选：景别设计，例如 中景/中近景/近景。"),
+    camera_angle: str = typer.Option("", "--camera-angle", help="可选：机位角度，例如 三分之二前侧/正侧面。"),
+    camera_focus: str = typer.Option("", "--camera-focus", help="可选：镜头重点，例如 人物与空间关系同时可读。"),
+    cut_reason: str = typer.Option("", "--cut-reason", help="可选：切换目的，例如 动作延续换角度。"),
     prompt: str = typer.Option("", "--prompt", help="自定义出图提示词；不传时自动生成一版稳定提示词。"),
     aspect_ratio: str = typer.Option("16:9", "--aspect-ratio", help="图片宽高比，默认 16:9。"),
     model_name: str = typer.Option("nano-banana-2", "--model", help="第三方图片模型名称。"),
@@ -1368,10 +1546,20 @@ def generate_scene_anchor(
 
     character_asset, character_image_path = _resolve_catalog_asset_image(catalog_path, character_ref, "character")
     scene_asset, scene_image_path = _resolve_catalog_asset_image(catalog_path, scene_ref, "scene")
+    resolved_scene_variant_refs = _resolve_existing_image_paths(scene_variant_ref_image)
+    resolved_continuity_ref = continuity_ref_image.resolve() if continuity_ref_image else None
+    if resolved_continuity_ref is not None and not resolved_continuity_ref.exists():
+        raise typer.BadParameter(f"找不到连续性参考图：{resolved_continuity_ref}")
     effective_prompt = prompt or _build_scene_anchor_prompt(
         character_name=character_asset.display_name,
         scene_name=scene_asset.display_name,
         storyboard_text=storyboard_text,
+        shot_size=shot_size,
+        camera_angle=camera_angle,
+        camera_focus=camera_focus,
+        cut_reason=cut_reason,
+        continuity_reference_enabled=resolved_continuity_ref is not None,
+        continuity_note=continuity_note,
     )
     service = OpenClawService()
     try:
@@ -1381,7 +1569,8 @@ def generate_scene_anchor(
                 storyboard_text=storyboard_text,
                 prompt=effective_prompt,
                 character_reference_paths=[str(character_image_path)],
-                scene_reference_paths=[str(scene_image_path)],
+                scene_reference_paths=[str(scene_image_path), *[str(path) for path in resolved_scene_variant_refs]],
+                continuity_reference_paths=[str(resolved_continuity_ref)] if resolved_continuity_ref else [],
                 model_name=model_name,
                 aspect_ratio=aspect_ratio,
                 output_path=str(output_path) if output_path else None,
@@ -1441,13 +1630,116 @@ def generate_scene_anchor(
     typer.echo(f"  - revised_prompt: {review_response.revised_prompt or '无'}")
 
 
+@app.command("generate-scene-variant-reference")
+def generate_scene_variant_reference(
+    scene_ref: str = typer.Option(..., "--scene-ref", help="场景参考，可传 display_name、asset_id 或 jimeng_ref_name。"),
+    continuity_ref_image: Optional[Path] = typer.Option(
+        None,
+        "--continuity-ref-image",
+        help="可选：上一镜头母图/承接帧，用于补充同场景其他视角的空间线索。",
+    ),
+    continuity_note: str = typer.Option("", "--continuity-note", help="可选：上一镜头连续性说明。"),
+    variant_intent: str = typer.Option(
+        "生成同一场景的另一视角纯场景参考图",
+        "--variant-intent",
+        help="说明这张参考图要服务什么视角切换。",
+    ),
+    shot_size: str = typer.Option("中景", "--shot-size", help="目标参考图景别。"),
+    camera_angle: str = typer.Option("斜侧面", "--camera-angle", help="目标参考图角度。"),
+    prompt: str = typer.Option("", "--prompt", help="自定义提示词；不传则基于提取的建筑特征自动生成。"),
+    aspect_ratio: str = typer.Option("16:9", "--aspect-ratio", help="图片宽高比，默认 16:9。"),
+    model_name: str = typer.Option("nano-banana-2", "--model", help="第三方图片模型名称。"),
+    output_path: Optional[Path] = typer.Option(None, "--output-path", help="输出图片路径。"),
+) -> None:
+    """从场景参考图/母图提取建筑特征，生成同一场景异视角的纯场景参考图。"""
+
+    _configure_logging()
+    _load_dotenv()
+    config = get_config()
+    catalog_path = _resolve_catalog_path(config.project_root)
+    scene_asset, scene_image_path = _resolve_catalog_asset_image(catalog_path, scene_ref, "scene")
+    resolved_continuity_ref = continuity_ref_image.resolve() if continuity_ref_image else None
+    if resolved_continuity_ref is not None and not resolved_continuity_ref.exists():
+        raise typer.BadParameter(f"找不到连续性参考图：{resolved_continuity_ref}")
+
+    service = OpenClawService()
+    try:
+        feature_response = service.extract_scene_features(
+            SceneFeatureExtractionRequest(
+                scene_name=scene_asset.display_name,
+                image_paths=[
+                    str(scene_image_path),
+                    *([str(resolved_continuity_ref)] if resolved_continuity_ref else []),
+                ],
+                continuity_note=continuity_note,
+            )
+        )
+    except SceneFeatureExtractionError as exc:
+        typer.echo("scene feature extraction 失败：", err=True)
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1)
+
+    effective_prompt = prompt or _build_scene_variant_reference_prompt(
+        scene_name=scene_asset.display_name,
+        variant_intent=variant_intent,
+        shot_size=shot_size,
+        camera_angle=camera_angle,
+        scene_signature_text=feature_response.scene_signature_text,
+    )
+    try:
+        response = service.generate_scene_anchor_image(
+            SceneAnchorImageRequest(
+                shot_id=f"scene-variant-{scene_asset.display_name}",
+                storyboard_text=variant_intent,
+                prompt=effective_prompt,
+                scene_reference_paths=[str(scene_image_path)],
+                continuity_reference_paths=[str(resolved_continuity_ref)] if resolved_continuity_ref else [],
+                model_name=model_name,
+                aspect_ratio=aspect_ratio,
+                output_path=str(output_path) if output_path else None,
+            ),
+            project_root=config.project_root,
+        )
+    except SceneAnchorImageError as exc:
+        typer.echo("scene variant reference 生成失败：", err=True)
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo("Scene Variant Reference 生成结果")
+    typer.echo(f"- scene_ref: {scene_asset.display_name}")
+    typer.echo(f"- architecture_style: {feature_response.architecture_style or '无'}")
+    typer.echo(f"- layout_summary: {feature_response.layout_summary or '无'}")
+    typer.echo(f"- anchor_landmarks: {', '.join(feature_response.anchor_landmarks) if feature_response.anchor_landmarks else '无'}")
+    typer.echo(f"- preserved_elements: {', '.join(feature_response.preserved_elements) if feature_response.preserved_elements else '无'}")
+    typer.echo(f"- forbidden_elements: {', '.join(feature_response.forbidden_elements) if feature_response.forbidden_elements else '无'}")
+    typer.echo(f"- camera_guidance: {feature_response.camera_guidance or '无'}")
+    typer.echo(f"- scene_signature_text: {feature_response.scene_signature_text or '无'}")
+    typer.echo(f"- prompt: {response.prompt}")
+    typer.echo(f"- output_path: {response.output_path}")
+
+
 @app.command("run-manju-scene-shot")
 def run_manju_scene_shot(
     storyboard_id: str = typer.Option("", "--storyboard-id", help="可选：当前镜头 ID；不传时按角色和场景自动生成。"),
     character_ref: str = typer.Option(..., "--character-ref", help="角色参考，可传 display_name、asset_id 或 jimeng_ref_name。"),
     scene_ref: str = typer.Option(..., "--scene-ref", help="场景参考，可传 display_name、asset_id 或 jimeng_ref_name。"),
+    scene_variant_ref_image: list[Path] = typer.Option(
+        [],
+        "--scene-variant-ref-image",
+        help="可选：同场景异视角参考图，可多次传入，会与主场景参考一起用于当前镜头首帧生成。",
+    ),
     pet_ref: list[str] = typer.Option([], "--pet-ref", help="可选：额外主体/宠物参考；可多次传入，支持本地图片路径或 assets/extras 下名称匹配。"),
     storyboard_text: str = typer.Option(..., "--storyboard-text", help="当前镜头摘要，会同时用于出图和视频提示词。"),
+    continuity_ref_image: Optional[Path] = typer.Option(
+        None,
+        "--continuity-ref-image",
+        help="可选：上一镜头母图/承接帧，只用于连续性参考，会重新生成当前镜头首帧图。",
+    ),
+    continuity_note: str = typer.Option("", "--continuity-note", help="可选：上一镜头连续性说明。"),
+    shot_size: str = typer.Option("", "--shot-size", help="可选：景别设计，例如 中景/中近景/近景。"),
+    camera_angle: str = typer.Option("", "--camera-angle", help="可选：机位角度，例如 三分之二前侧/正侧面。"),
+    camera_focus: str = typer.Option("", "--camera-focus", help="可选：镜头重点，例如 人物与空间关系同时可读。"),
+    cut_reason: str = typer.Option("", "--cut-reason", help="可选：切换目的，例如 动作延续换角度。"),
     anchor_prompt: str = typer.Option("", "--anchor-prompt", help="自定义锚点图提示词；不传时自动生成。"),
     video_prompt: str = typer.Option("", "--video-prompt", help="自定义 Manju 视频提示词；不传时自动生成。"),
     aspect_ratio: str = typer.Option("16:9", "--aspect-ratio", help="锚点图宽高比，默认 16:9。"),
@@ -1484,9 +1776,13 @@ def run_manju_scene_shot(
     catalog_path = _resolve_catalog_path(config.project_root)
     character_asset, character_image_path = _resolve_catalog_asset_image(catalog_path, character_ref, "character")
     scene_asset, scene_image_path = _resolve_catalog_asset_image(catalog_path, scene_ref, "scene")
+    resolved_scene_variant_refs = _resolve_existing_image_paths(scene_variant_ref_image)
     extra_reference_pairs = _resolve_extra_reference_images(config.project_root, pet_ref)
     extra_subject_names = [name for name, _ in extra_reference_pairs]
     extra_reference_paths = [str(path) for _, path in extra_reference_pairs]
+    resolved_continuity_ref = continuity_ref_image.resolve() if continuity_ref_image else None
+    if resolved_continuity_ref is not None and not resolved_continuity_ref.exists():
+        raise typer.BadParameter(f"找不到连续性参考图：{resolved_continuity_ref}")
     shot_id = storyboard_id.strip() or f"manju-scene-{character_asset.display_name}-{scene_asset.display_name}"
 
     service = OpenClawService()
@@ -1524,6 +1820,12 @@ def run_manju_scene_shot(
             scene_name=scene_asset.display_name,
             storyboard_text=storyboard_text,
             extra_subject_names=extra_subject_names,
+            shot_size=shot_size,
+            camera_angle=camera_angle,
+            camera_focus=camera_focus,
+            cut_reason=cut_reason,
+            continuity_reference_enabled=resolved_continuity_ref is not None,
+            continuity_note=continuity_note,
         )
         max_anchor_attempts = 3
         for anchor_attempt in range(1, max_anchor_attempts + 1):
@@ -1534,8 +1836,9 @@ def run_manju_scene_shot(
                         storyboard_text=storyboard_text,
                         prompt=effective_anchor_prompt,
                         character_reference_paths=[str(character_image_path)],
-                        scene_reference_paths=[str(scene_image_path)],
+                        scene_reference_paths=[str(scene_image_path), *[str(path) for path in resolved_scene_variant_refs]],
                         extra_reference_paths=extra_reference_paths,
+                        continuity_reference_paths=[str(resolved_continuity_ref)] if resolved_continuity_ref else [],
                         model_name=model_name,
                         aspect_ratio=aspect_ratio,
                         output_path=str(anchor_output_path) if anchor_output_path else None,
@@ -1594,6 +1897,12 @@ def run_manju_scene_shot(
         scene_name=scene_asset.display_name,
         storyboard_text=storyboard_text,
         extra_subject_names=extra_subject_names,
+        shot_size=shot_size,
+        camera_angle=camera_angle,
+        camera_focus=camera_focus,
+        cut_reason=cut_reason,
+        continuity_reference_enabled=resolved_continuity_ref is not None,
+        continuity_note=continuity_note,
     )
     effective_duration_seconds = duration_seconds or _estimate_manju_duration_seconds(storyboard_text)
     resolved_video_output_path = video_output_path or (

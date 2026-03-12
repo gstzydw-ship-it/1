@@ -26,7 +26,7 @@ class ScriptSplitterService:
             raise ValueError("script_text is empty")
 
         units = self._merge_orphan_units(self._extract_units(normalized_text))
-        shots = self._build_shots(units, request)
+        shots = self._apply_cinematic_shot_design(self._build_shots(units, request))
         notes = [
             "切分策略偏保守：优先把对白、动作转折、突发事件拆开，降低单镜头信息密度。",
             "输出镜头默认适配 manju_scene_batch，可直接补充项目 URL 后进入批量生成。",
@@ -195,6 +195,55 @@ class ScriptSplitterService:
 
         flush_buffer()
         return shots
+
+    def _apply_cinematic_shot_design(self, shots: list[SplitShot]) -> list[SplitShot]:
+        designed: list[SplitShot] = []
+        movement_cycle = [
+            ("中景", "三分之二前侧", "人物与空间关系同时清楚", "建立人物在空间中的行进关系"),
+            ("侧面中景", "正侧面", "人物的行走方向和步态连续", "动作延续时换角度，避免同景别跳切"),
+            ("中近景", "三分之二侧前方", "主角神态与动作收势同步可读", "从位移切到情绪与状态"),
+            ("背后三分之二中景", "背后偏侧", "人物去向与前方空间目标明确", "保持方向连续，补足空间指向"),
+        ]
+
+        for index, shot in enumerate(shots, start=1):
+            kind = self._classify_shot_kind(shot.storyboard_text, shot.current_shot_summary, index=index)
+            shot_size = "中近景"
+            camera_angle = "三分之二前侧"
+            camera_focus = "主体清楚、构图稳定"
+            cut_reason = "保持镜头信息集中"
+
+            if kind == "establishing":
+                shot_size = "中景"
+                camera_angle = "三分之二前侧"
+                camera_focus = "人物与场景入口关系同时可读"
+                cut_reason = "先交代人物落点、空间朝向和场面关系"
+            elif kind == "dialogue":
+                shot_size = "中近景"
+                camera_angle = "三分之二侧面"
+                camera_focus = "脸部、口型和视线方向清楚"
+                cut_reason = "用于对话反打或对白前后的情绪承接"
+            elif kind == "reaction":
+                shot_size = "近景"
+                camera_angle = "正面或三分之二前侧"
+                camera_focus = "表情、眼神和轻微动作清楚"
+                cut_reason = "放大情绪反应，给前后动作留节奏落点"
+            elif kind == "action_peak":
+                shot_size = "中景"
+                camera_angle = "斜侧面"
+                camera_focus = "关键动作与受影响对象同时可见"
+                cut_reason = "突出动作爆点，同时保持空间可读性"
+            elif kind == "movement":
+                shot_size, camera_angle, camera_focus, cut_reason = movement_cycle[(index - 1) % len(movement_cycle)]
+
+            shot.shot_kind = kind
+            shot.shot_size = shot_size
+            shot.camera_angle = camera_angle
+            shot.camera_focus = camera_focus
+            shot.cut_reason = cut_reason
+            shot.anchor_strategy = "auto" if index == 1 else "generate_from_continuity_ref"
+            designed.append(shot)
+
+        return designed
 
     def _split_line_into_sentences(self, line: str) -> list[str]:
         parts = self._split_outside_brackets(line, separators=("。", "！", "？", "!", "?", "；", ";"))
@@ -373,3 +422,25 @@ class ScriptSplitterService:
         if shot_index > 1:
             parts.append("动作从上一镜头收尾处继续，不要跳轴或突然换景")
         return "；".join(parts)
+
+    def _classify_shot_kind(self, storyboard_text: str, current_shot_summary: str, *, index: int) -> str:
+        text = f"{storyboard_text} {current_shot_summary}".strip()
+        if self._is_dialogue_line(storyboard_text) or self._is_dialogue_line(current_shot_summary):
+            return "dialogue"
+
+        reaction_tokens = ("表情", "眼神", "惊讶", "沉默", "犹豫", "皱眉", "眼睛一亮", "笑了笑", "看着", "盯着")
+        action_peak_tokens = ("突然", "爆炸", "浓烟", "大火", "砸", "挥拳", "冲上去", "拉出来", "救人", "碎裂")
+        movement_tokens = ("走", "跑", "奔", "来到", "走在", "进", "出", "转身", "继续", "牵着", "起身", "快步")
+        establishing_tokens = ("路上", "街道", "门口", "宿舍外", "教室", "走廊", "广场", "场景", "空间", "眼前")
+
+        if any(token in text for token in action_peak_tokens):
+            return "action_peak"
+        if any(token in text for token in reaction_tokens):
+            return "reaction"
+        if index == 1 and any(token in text for token in establishing_tokens + movement_tokens):
+            return "establishing"
+        if any(token in text for token in movement_tokens):
+            return "movement"
+        if any(token in text for token in establishing_tokens):
+            return "establishing"
+        return "reaction" if index > 1 else "establishing"

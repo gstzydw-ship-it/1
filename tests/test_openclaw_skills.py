@@ -8,6 +8,7 @@ from app.openclaw.models import (
     PromptComposerRequest,
     SceneAnchorImageRequest,
     SceneAnchorImageResponse,
+    SceneFeatureExtractionRequest,
     SceneAnchorReviewRequest,
 )
 from app.openclaw.service import OpenClawService
@@ -307,3 +308,44 @@ def test_openclaw_client_review_scene_anchor_image_parses_response(monkeypatch, 
     assert response.selected_issue_ids == ["scene_mismatch"]
     assert response.prompt_patch == "保持普通学院教室场景，不要混入额外建筑元素。"
     assert "补充约束" in response.revised_prompt
+
+
+def test_openclaw_client_extract_scene_features_parses_response(monkeypatch, tmp_path: Path) -> None:
+    scene_path = tmp_path / "scene.jpg"
+    continuity_path = tmp_path / "transition.jpg"
+    scene_path.write_bytes(b"fake-scene")
+    continuity_path.write_bytes(b"fake-transition")
+
+    client = OpenClawClient()
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_BASE_URL", "https://ai.comfly.chat/v1/chat/completions")
+
+    def _fake_extract(*args, **kwargs):
+        return json.dumps(
+            {
+                "architecture_style": "现代校园宿舍区，浅色教学楼与宿舍立面统一。",
+                "layout_summary": "道路沿建筑立面前方延伸，建筑群左右展开，透视朝道路前方收束。",
+                "anchor_landmarks": ["浅色宿舍楼立面", "连续路灯", "道路边缘绿化带"],
+                "preserved_elements": ["浅色立面", "路灯间距", "道路朝向"],
+                "forbidden_elements": ["古典牌楼", "霓虹招牌", "欧式尖顶"],
+                "camera_guidance": "可以切到侧面中景，沿道路方向平行观察。",
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(client, "_is_openai_compatible_base_url", lambda base_url: True)
+    monkeypatch.setattr(client, "_extract_scene_features_openai_compatible", _fake_extract)
+
+    response = client.extract_scene_features(
+        SceneFeatureExtractionRequest(
+            scene_name="学校宿舍外道路",
+            image_paths=[str(scene_path), str(continuity_path)],
+            continuity_note="上一镜头人物沿道路向前。",
+        )
+    )
+
+    assert response.scene_name == "学校宿舍外道路"
+    assert "现代校园宿舍区" in response.architecture_style
+    assert response.anchor_landmarks == ["浅色宿舍楼立面", "连续路灯", "道路边缘绿化带"]
+    assert response.forbidden_elements == ["古典牌楼", "霓虹招牌", "欧式尖顶"]
+    assert "建筑风格" in response.scene_signature_text

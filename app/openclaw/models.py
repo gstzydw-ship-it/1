@@ -89,9 +89,32 @@ class SceneAnchorImageRequest(BaseModel):
     character_reference_paths: list[str] = Field(default_factory=list)
     scene_reference_paths: list[str] = Field(default_factory=list)
     extra_reference_paths: list[str] = Field(default_factory=list)
+    continuity_reference_paths: list[str] = Field(default_factory=list)
     model_name: str = "nano-banana-2"
     aspect_ratio: str = "16:9"
     output_path: str | None = None
+
+
+class SceneFeatureExtractionRequest(BaseModel):
+    """从场景参考图/母图中提取稳定建筑与空间特征。"""
+
+    scene_name: str
+    image_paths: list[str] = Field(default_factory=list)
+    continuity_note: str = ""
+
+
+class SceneFeatureExtractionResponse(BaseModel):
+    """场景特征提取结果。"""
+
+    scene_name: str
+    architecture_style: str = ""
+    layout_summary: str = ""
+    anchor_landmarks: list[str] = Field(default_factory=list)
+    preserved_elements: list[str] = Field(default_factory=list)
+    forbidden_elements: list[str] = Field(default_factory=list)
+    camera_guidance: str = ""
+    scene_signature_text: str = ""
+    model_name: str = ""
 
 
 class SceneAnchorImageResponse(BaseModel):

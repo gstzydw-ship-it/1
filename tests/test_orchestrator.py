@@ -125,10 +125,15 @@ def _write_manju_scene_batch_script(tmp_path: Path) -> Path:
                     {
                         "storyboard_id": "manju_batch_001",
                         "storyboard_text": "Linbai stands still in the classroom.",
+                        "shot_size": "中景",
+                        "camera_angle": "三分之二前侧",
                     },
                     {
                         "storyboard_id": "manju_batch_002",
                         "storyboard_text": "Linbai turns and continues speaking in the classroom.",
+                        "shot_size": "中近景",
+                        "camera_angle": "正侧面",
+                        "cut_reason": "动作延续换角度",
                     },
                 ],
             },
@@ -568,11 +573,17 @@ def test_orchestrator_run_executes_manju_scene_batch_workflow(tmp_path: Path) ->
     assert scene_runner.calls[0]["character_ref"] == "CHAR_LINBAI__v1"
     assert scene_runner.calls[0]["scene_ref"] == "SCENE_CLASSROOM__v1"
     assert scene_runner.calls[0]["input_anchor_image_path"] == ""
-    assert scene_runner.calls[1]["input_anchor_image_path"].endswith("manju_batch_001_transition.png")
+    assert scene_runner.calls[1]["input_anchor_image_path"] == ""
+    assert scene_runner.calls[1]["continuity_ref_image_path"].endswith("manju_batch_001_transition.png")
+    assert scene_runner.calls[1]["shot_size"] == "中近景"
+    assert scene_runner.calls[1]["camera_angle"] == "正侧面"
     assert Path(result["steps"]["scene_batch"]["shots"][0]["character_reference_image"]).name == "linbai_1.png"
     assert Path(result["steps"]["scene_batch"]["shots"][0]["scene_reference_image"]).name == "classroom_1.png"
     assert result["steps"]["scene_batch"]["shots"][0]["transition_frame_path"].endswith("manju_batch_001_transition.png")
-    assert result["steps"]["scene_batch"]["shots"][1]["anchor_source"] == "transition"
+    assert result["steps"]["scene_batch"]["shots"][1]["anchor_source"] == "continuity_ref"
+    assert result["steps"]["scene_batch"]["shots"][1]["continuity_ref_image_path"].endswith(
+        "manju_batch_001_transition.png"
+    )
     assert len(analyzer.calls) == 1
     assert len(transition_extractor.calls) == 1
 
@@ -641,7 +652,8 @@ def test_orchestrator_manju_scene_batch_force_regenerates_anchor_and_keeps_pet_r
     assert scene_runner.calls[0]["pet_refs"] == ["dog"]
     assert scene_runner.calls[0]["force_regenerate_anchor"] is True
     assert scene_runner.calls[0]["input_anchor_image_path"] == ""
-    assert scene_runner.calls[1]["input_anchor_image_path"].endswith("manju_batch_force_001_transition.png")
+    assert scene_runner.calls[1]["input_anchor_image_path"] == ""
+    assert scene_runner.calls[1]["continuity_ref_image_path"].endswith("manju_batch_force_001_transition.png")
 
 
 def test_orchestrator_resume_retries_manju_scene_shot_workflow(tmp_path: Path) -> None:
@@ -714,7 +726,8 @@ def test_orchestrator_resume_retries_manju_scene_batch_from_failed_shot(tmp_path
     assert resumed["resumed_from_shot_index"] == 2
     assert len(succeeding_runner.calls) == 1
     assert succeeding_runner.calls[0]["storyboard_id"] == "manju_batch_002"
-    assert succeeding_runner.calls[0]["input_anchor_image_path"].endswith("manju_batch_001_transition.png")
+    assert succeeding_runner.calls[0]["input_anchor_image_path"] == ""
+    assert succeeding_runner.calls[0]["continuity_ref_image_path"].endswith("manju_batch_001_transition.png")
 
     engine = create_engine(database_url, echo=False)
     with Session(engine) as session:

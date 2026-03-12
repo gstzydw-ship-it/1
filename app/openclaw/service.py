@@ -12,6 +12,8 @@ from app.openclaw.models import (
     PromptSuggestion,
     SceneAnchorImageRequest,
     SceneAnchorImageResponse,
+    SceneFeatureExtractionRequest,
+    SceneFeatureExtractionResponse,
     SceneAnchorReviewRequest,
     SceneAnchorReviewResponse,
 )
@@ -79,3 +81,8 @@ class OpenClawService:
         """审查换场景首帧锚点图是否可直接进入视频生成。"""
 
         return self.client.review_scene_anchor_image(request_model)
+
+    def extract_scene_features(self, request_model: SceneFeatureExtractionRequest) -> SceneFeatureExtractionResponse:
+        """提取同一场景跨视角仍需保留的建筑与空间特征。"""
+
+        return self.client.extract_scene_features(request_model)

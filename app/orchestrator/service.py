@@ -413,6 +413,12 @@ class Orchestrator:
                     scene_ref=str(task_payload["scene_ref"]),
                     pet_refs=list(task_payload.get("pet_refs") or []),
                     storyboard_text=storyboard_text,
+                    continuity_ref_image_path=str(task_payload.get("continuity_ref_image_path") or ""),
+                    continuity_note=str(task_payload.get("continuity_note") or ""),
+                    shot_size=str(task_payload.get("shot_size") or ""),
+                    camera_angle=str(task_payload.get("camera_angle") or ""),
+                    camera_focus=str(task_payload.get("camera_focus") or ""),
+                    cut_reason=str(task_payload.get("cut_reason") or ""),
                     anchor_prompt=str(task_payload.get("anchor_prompt") or ""),
                     video_prompt=str(task_payload.get("video_prompt") or ""),
                     input_anchor_image_path=str(task_payload.get("input_anchor_image_path") or task_payload.get("anchor_image_path") or ""),
@@ -450,11 +456,14 @@ class Orchestrator:
                 raise
 
             output_path = str(run_result.get("output_path") or "")
+            reference_asset_ids = ["@SceneAnchorImage"]
+            if str(task_payload.get("continuity_ref_image_path") or "").strip():
+                reference_asset_ids = ["@ContinuityReference", "@SceneAnchorImage"]
             self._replace_prompt_cache_record(
                 session=session,
                 cache_key=storyboard_id,
                 prompt_text=str(run_result.get("video_prompt") or ""),
-                reference_asset_ids=json.dumps(["@SceneAnchorImage"], ensure_ascii=False),
+                reference_asset_ids=json.dumps(reference_asset_ids, ensure_ascii=False),
             )
             storyboard.status = "completed"
             storyboard.current_stage = "completed"
@@ -573,6 +582,7 @@ class Orchestrator:
                     prepared_shot = self._prepare_manju_scene_shot(shot)
                     explicit_anchor_image_path = str(shot.get("input_anchor_image_path") or "").strip()
                     force_regenerate_anchor = bool(prepared_shot["runner_kwargs"].get("force_regenerate_anchor"))
+                    anchor_strategy = str(prepared_shot.get("anchor_strategy") or "auto").strip() or "auto"
                     has_same_references = (
                         previous_transition_path is not None
                         and prepared_shot["character_asset_id"] == previous_character_asset_id
@@ -581,16 +591,26 @@ class Orchestrator:
                     )
                     if explicit_anchor_image_path and not force_regenerate_anchor:
                         prepared_shot["runner_kwargs"]["input_anchor_image_path"] = explicit_anchor_image_path
+                        prepared_shot["runner_kwargs"]["continuity_ref_image_path"] = ""
                         anchor_source = "provided"
-                    elif has_same_references and not force_regenerate_anchor:
+                    elif has_same_references and not force_regenerate_anchor and anchor_strategy == "reuse_previous_transition":
                         prepared_shot["runner_kwargs"]["input_anchor_image_path"] = str(previous_transition_path)
+                        prepared_shot["runner_kwargs"]["continuity_ref_image_path"] = ""
                         anchor_source = "transition"
+                    elif has_same_references and previous_transition_path is not None:
+                        prepared_shot["runner_kwargs"]["input_anchor_image_path"] = ""
+                        prepared_shot["runner_kwargs"]["continuity_ref_image_path"] = str(previous_transition_path)
+                        anchor_source = "continuity_ref"
                     else:
                         prepared_shot["runner_kwargs"]["input_anchor_image_path"] = ""
+                        prepared_shot["runner_kwargs"]["continuity_ref_image_path"] = str(
+                            prepared_shot["runner_kwargs"].get("continuity_ref_image_path") or ""
+                        )
                         anchor_source = "generated"
 
-                    if anchor_source == "transition" and previous_transition_summary:
+                    if anchor_source in {"transition", "continuity_ref"} and previous_transition_summary:
                         storyboard.previous_frame_summary = previous_transition_summary
+                        prepared_shot["runner_kwargs"]["continuity_note"] = previous_transition_summary
                     elif explicit_anchor_image_path:
                         storyboard.previous_frame_summary = "使用外部提供的首帧图作为当前镜头输入。"
                     else:
@@ -631,6 +651,7 @@ class Orchestrator:
                     reference_asset_ids=json.dumps(
                         ["@ProvidedAnchorImage"] if anchor_source == "provided"
                         else ["@TransitionFrame"] if anchor_source == "transition"
+                        else ["@ContinuityReference", "@SceneAnchorImage"] if anchor_source == "continuity_ref"
                         else ["@SceneAnchorImage"],
                         ensure_ascii=False,
                     ),
@@ -686,6 +707,9 @@ class Orchestrator:
                         "video_path": output_path,
                         "anchor_image_path": anchor_image_path,
                         "anchor_source": anchor_source,
+                        "continuity_ref_image_path": str(
+                            prepared_shot["runner_kwargs"].get("continuity_ref_image_path") or ""
+                        ),
                         "audit_report_path": str(run_result.get("audit_report_path") or ""),
                         "transition_frame_path": str(next_transition_path) if next_transition_path else "",
                         "character_ref": prepared_shot["character_asset_id"],
@@ -1015,6 +1039,13 @@ class Orchestrator:
             "character_ref": payload.get("character_ref"),
             "scene_ref": payload.get("scene_ref"),
             "pet_refs": list(payload.get("pet_refs") or []),
+            "continuity_ref_image_path": payload.get("continuity_ref_image_path", ""),
+            "continuity_note": payload.get("continuity_note", ""),
+            "shot_size": payload.get("shot_size", ""),
+            "camera_angle": payload.get("camera_angle", ""),
+            "camera_focus": payload.get("camera_focus", ""),
+            "cut_reason": payload.get("cut_reason", ""),
+            "anchor_strategy": payload.get("anchor_strategy", "auto"),
             "anchor_prompt": payload.get("anchor_prompt", ""),
             "video_prompt": payload.get("video_prompt", ""),
             "input_anchor_image_path": payload.get("input_anchor_image_path") or payload.get("anchor_image_path", ""),
@@ -1058,6 +1089,15 @@ class Orchestrator:
                     "character_ref": str(character_ref),
                     "scene_ref": str(scene_ref),
                     "pet_refs": pet_refs,
+                    "continuity_ref_image_path": str(
+                        shot.get("continuity_ref_image_path", defaults["continuity_ref_image_path"]) or ""
+                    ),
+                    "continuity_note": str(shot.get("continuity_note", defaults["continuity_note"]) or ""),
+                    "shot_size": str(shot.get("shot_size", defaults["shot_size"]) or ""),
+                    "camera_angle": str(shot.get("camera_angle", defaults["camera_angle"]) or ""),
+                    "camera_focus": str(shot.get("camera_focus", defaults["camera_focus"]) or ""),
+                    "cut_reason": str(shot.get("cut_reason", defaults["cut_reason"]) or ""),
+                    "anchor_strategy": str(shot.get("anchor_strategy", defaults["anchor_strategy"]) or "auto"),
                     "anchor_prompt": str(shot.get("anchor_prompt", defaults["anchor_prompt"]) or ""),
                     "video_prompt": str(shot.get("video_prompt", defaults["video_prompt"]) or ""),
                     "input_anchor_image_path": shot_input_anchor_image_path,
@@ -1099,6 +1139,12 @@ class Orchestrator:
                 "character_ref": character_reference.asset.asset_id,
                 "scene_ref": scene_reference.asset.asset_id,
                 "pet_refs": pet_refs,
+                "continuity_ref_image_path": str(shot.get("continuity_ref_image_path") or ""),
+                "continuity_note": str(shot.get("continuity_note") or ""),
+                "shot_size": str(shot.get("shot_size") or ""),
+                "camera_angle": str(shot.get("camera_angle") or ""),
+                "camera_focus": str(shot.get("camera_focus") or ""),
+                "cut_reason": str(shot.get("cut_reason") or ""),
                 "storyboard_text": str(shot.get("storyboard_text") or ""),
                 "anchor_prompt": str(shot.get("anchor_prompt") or ""),
                 "video_prompt": str(shot.get("video_prompt") or ""),
@@ -1116,6 +1162,7 @@ class Orchestrator:
                 "anchor_output_path": str(shot.get("anchor_output_path") or ""),
                 "video_output_path": str(shot.get("video_output_path") or ""),
             },
+            "anchor_strategy": str(shot.get("anchor_strategy") or "auto"),
             "character_asset_id": character_reference.asset.asset_id,
             "scene_asset_id": scene_reference.asset.asset_id,
             "pet_refs_key": "|".join(sorted(pet_refs)),
@@ -1248,6 +1295,8 @@ class Orchestrator:
             str(kwargs["scene_ref"]),
             "--storyboard-text",
             str(kwargs["storyboard_text"]),
+            "--continuity-note",
+            str(kwargs.get("continuity_note") or ""),
             "--aspect-ratio",
             str(kwargs["aspect_ratio"]),
             "--model",
@@ -1263,6 +1312,16 @@ class Orchestrator:
         ]
         for pet_ref in list(kwargs.get("pet_refs") or []):
             command.extend(["--pet-ref", str(pet_ref)])
+        if kwargs.get("continuity_ref_image_path"):
+            command.extend(["--continuity-ref-image", str(kwargs["continuity_ref_image_path"])])
+        if kwargs.get("shot_size"):
+            command.extend(["--shot-size", str(kwargs["shot_size"])])
+        if kwargs.get("camera_angle"):
+            command.extend(["--camera-angle", str(kwargs["camera_angle"])])
+        if kwargs.get("camera_focus"):
+            command.extend(["--camera-focus", str(kwargs["camera_focus"])])
+        if kwargs.get("cut_reason"):
+            command.extend(["--cut-reason", str(kwargs["cut_reason"])])
         if kwargs.get("anchor_prompt"):
             command.extend(["--anchor-prompt", str(kwargs["anchor_prompt"])])
         if kwargs.get("video_prompt"):

@@ -1,6 +1,12 @@
 """OpenClaw 相关导出。"""
 
-from app.openclaw.client import OpenClawClient, OpenClawMockRunner, SceneAnchorImageError, SceneAnchorReviewError
+from app.openclaw.client import (
+    OpenClawClient,
+    OpenClawMockRunner,
+    SceneAnchorImageError,
+    SceneAnchorReviewError,
+    SceneFeatureExtractionError,
+)
 from app.openclaw.models import (
     AssetPlannerRequest,
     AssetPlannerResponse,
@@ -10,6 +16,8 @@ from app.openclaw.models import (
     PromptSuggestion,
     SceneAnchorImageRequest,
     SceneAnchorImageResponse,
+    SceneFeatureExtractionRequest,
+    SceneFeatureExtractionResponse,
     SceneAnchorReviewRequest,
     SceneAnchorReviewResponse,
 )
@@ -29,6 +37,9 @@ __all__ = [
     "SceneAnchorImageRequest",
     "SceneAnchorImageResponse",
     "SceneAnchorReviewError",
+    "SceneFeatureExtractionError",
+    "SceneFeatureExtractionRequest",
+    "SceneFeatureExtractionResponse",
     "SceneAnchorReviewRequest",
     "SceneAnchorReviewResponse",
 ]

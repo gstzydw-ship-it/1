@@ -32,6 +32,12 @@ class SplitShot:
     current_shot_summary: str = ""
     continuity_requirements: str = ""
     source_text: str = ""
+    shot_kind: str = ""
+    shot_size: str = ""
+    camera_angle: str = ""
+    camera_focus: str = ""
+    cut_reason: str = ""
+    anchor_strategy: str = "auto"
 
 
 @dataclass(slots=True)
