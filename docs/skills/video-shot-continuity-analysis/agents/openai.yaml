@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shot Continuity"
+  short_description: "Check shot-to-shot continuity before generation"
+  default_prompt: "Use $video-shot-continuity-analysis to review whether the next shot truly matches the previous shot's ending frame before generating."
