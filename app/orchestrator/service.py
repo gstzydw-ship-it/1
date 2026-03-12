@@ -411,9 +411,12 @@ class Orchestrator:
                     storyboard_id=storyboard_id,
                     character_ref=str(task_payload["character_ref"]),
                     scene_ref=str(task_payload["scene_ref"]),
+                    pet_refs=list(task_payload.get("pet_refs") or []),
                     storyboard_text=storyboard_text,
                     anchor_prompt=str(task_payload.get("anchor_prompt") or ""),
                     video_prompt=str(task_payload.get("video_prompt") or ""),
+                    input_anchor_image_path=str(task_payload.get("input_anchor_image_path") or task_payload.get("anchor_image_path") or ""),
+                    force_regenerate_anchor=bool(task_payload.get("force_regenerate_anchor", False)),
                     aspect_ratio=str(task_payload.get("aspect_ratio") or "16:9"),
                     model_name=str(task_payload.get("model_name") or "nano-banana-2"),
                     duration_seconds=int(task_payload.get("duration_seconds") or 0),
@@ -514,6 +517,11 @@ class Orchestrator:
             session.commit()
 
             shot_results: list[dict[str, object]] = []
+            previous_transition_path: Path | None = None
+            previous_transition_summary = ""
+            previous_character_asset_id = ""
+            previous_scene_asset_id = ""
+            previous_pet_refs_key = ""
             for shot_index, shot in enumerate(shots, start=1):
                 storyboard = self._get_or_create_storyboard_record(
                     session=session,
@@ -524,13 +532,21 @@ class Orchestrator:
                 video_record = self._get_or_create_video_record(session, storyboard)
 
                 if shot_index < start_shot_index and storyboard.status == "completed":
+                    prepared_completed_shot = self._prepare_manju_scene_shot(shot)
                     shot_results.append(
                         {
                             "shot_id": storyboard.storyboard_key,
                             "status": storyboard.status,
                             "video_path": self._lookup_video_path(session, storyboard),
+                            "transition_frame_path": storyboard.transition_frame_path or "",
                         }
                     )
+                    previous_character_asset_id = prepared_completed_shot["character_asset_id"]
+                    previous_scene_asset_id = prepared_completed_shot["scene_asset_id"]
+                    previous_pet_refs_key = prepared_completed_shot["pet_refs_key"]
+                    if storyboard.transition_frame_path:
+                        previous_transition_path = Path(storyboard.transition_frame_path)
+                        previous_transition_summary = storyboard.transition_frame_summary or ""
                     continue
 
                 if shot_index >= start_shot_index and resumed:
@@ -555,6 +571,33 @@ class Orchestrator:
 
                 try:
                     prepared_shot = self._prepare_manju_scene_shot(shot)
+                    explicit_anchor_image_path = str(shot.get("input_anchor_image_path") or "").strip()
+                    force_regenerate_anchor = bool(prepared_shot["runner_kwargs"].get("force_regenerate_anchor"))
+                    has_same_references = (
+                        previous_transition_path is not None
+                        and prepared_shot["character_asset_id"] == previous_character_asset_id
+                        and prepared_shot["scene_asset_id"] == previous_scene_asset_id
+                        and prepared_shot["pet_refs_key"] == previous_pet_refs_key
+                    )
+                    if explicit_anchor_image_path and not force_regenerate_anchor:
+                        prepared_shot["runner_kwargs"]["input_anchor_image_path"] = explicit_anchor_image_path
+                        anchor_source = "provided"
+                    elif has_same_references and not force_regenerate_anchor:
+                        prepared_shot["runner_kwargs"]["input_anchor_image_path"] = str(previous_transition_path)
+                        anchor_source = "transition"
+                    else:
+                        prepared_shot["runner_kwargs"]["input_anchor_image_path"] = ""
+                        anchor_source = "generated"
+
+                    if anchor_source == "transition" and previous_transition_summary:
+                        storyboard.previous_frame_summary = previous_transition_summary
+                    elif explicit_anchor_image_path:
+                        storyboard.previous_frame_summary = "使用外部提供的首帧图作为当前镜头输入。"
+                    else:
+                        storyboard.previous_frame_summary = ""
+                    session.add(storyboard)
+                    session.commit()
+
                     run_result = self.scene_shot_runner(**prepared_shot["runner_kwargs"])
                 except Exception as exc:
                     failure_status = f"failed:shot_{shot_index}"
@@ -577,12 +620,51 @@ class Orchestrator:
                     raise
 
                 output_path = str(run_result.get("output_path") or "")
+                anchor_image_path = str(run_result.get("anchor_image_path") or prepared_shot["runner_kwargs"].get("input_anchor_image_path") or "")
+                next_transition_path: Path | None = None
+                next_transition_summary = ""
+
                 self._replace_prompt_cache_record(
                     session=session,
                     cache_key=storyboard.storyboard_key,
                     prompt_text=str(run_result.get("video_prompt") or ""),
-                    reference_asset_ids=json.dumps(["@SceneAnchorImage"], ensure_ascii=False),
+                    reference_asset_ids=json.dumps(
+                        ["@ProvidedAnchorImage"] if anchor_source == "provided"
+                        else ["@TransitionFrame"] if anchor_source == "transition"
+                        else ["@SceneAnchorImage"],
+                        ensure_ascii=False,
+                    ),
                 )
+
+                if shot_index < len(shots):
+                    next_shot = shots[shot_index]
+                    transition_result = self.video_analyzer.analyze_one_shot(
+                        output_path,
+                        current_shot_summary=str(shot.get("storyboard_text") or ""),
+                        next_shot_summary=str(next_shot.get("storyboard_text") or ""),
+                    )
+                    if transition_result.best_frame is None:
+                        raise RuntimeError(f"未能为 {storyboard.storyboard_key} 选出可用承接帧")
+                    next_transition_path = (
+                        self.project_root
+                        / "outputs"
+                        / "frames"
+                        / storyboard.storyboard_key
+                        / f"{storyboard.storyboard_key}_transition.png"
+                    )
+                    next_transition_path.parent.mkdir(parents=True, exist_ok=True)
+                    self.transition_frame_extractor(
+                        Path(output_path),
+                        transition_result.best_frame.timestamp_seconds,
+                        next_transition_path,
+                    )
+                    next_transition_summary = (
+                        f"上一镜头最佳承接帧位于 {transition_result.best_frame.timestamp_seconds:.2f}s，"
+                        f"原因：{transition_result.best_frame.reason}"
+                    )
+
+                storyboard.transition_frame_path = str(next_transition_path) if next_transition_path else None
+                storyboard.transition_frame_summary = next_transition_summary
                 storyboard.status = "completed"
                 storyboard.current_stage = "completed"
                 storyboard.finished_at = _utc_now()
@@ -602,13 +684,21 @@ class Orchestrator:
                         "shot_id": storyboard.storyboard_key,
                         "status": "completed",
                         "video_path": output_path,
+                        "anchor_image_path": anchor_image_path,
+                        "anchor_source": anchor_source,
                         "audit_report_path": str(run_result.get("audit_report_path") or ""),
+                        "transition_frame_path": str(next_transition_path) if next_transition_path else "",
                         "character_ref": prepared_shot["character_asset_id"],
                         "scene_ref": prepared_shot["scene_asset_id"],
                         "character_reference_image": prepared_shot["character_image_path"],
                         "scene_reference_image": prepared_shot["scene_image_path"],
                     }
                 )
+                previous_transition_path = next_transition_path
+                previous_transition_summary = next_transition_summary
+                previous_character_asset_id = prepared_shot["character_asset_id"]
+                previous_scene_asset_id = prepared_shot["scene_asset_id"]
+                previous_pet_refs_key = prepared_shot["pet_refs_key"]
 
             task_run.status = "success"
             task_run.current_stage = "completed"
@@ -924,8 +1014,11 @@ class Orchestrator:
         defaults = {
             "character_ref": payload.get("character_ref"),
             "scene_ref": payload.get("scene_ref"),
+            "pet_refs": list(payload.get("pet_refs") or []),
             "anchor_prompt": payload.get("anchor_prompt", ""),
             "video_prompt": payload.get("video_prompt", ""),
+            "input_anchor_image_path": payload.get("input_anchor_image_path") or payload.get("anchor_image_path", ""),
+            "force_regenerate_anchor": bool(payload.get("force_regenerate_anchor", False)),
             "aspect_ratio": payload.get("aspect_ratio", "16:9"),
             "model_name": payload.get("model_name", "nano-banana-2"),
             "duration_seconds": int(payload.get("duration_seconds") or 0),
@@ -943,6 +1036,16 @@ class Orchestrator:
             storyboard_text = str(shot.get("storyboard_text") or shot.get("summary") or "").strip()
             character_ref = shot.get("character_ref") or defaults["character_ref"]
             scene_ref = shot.get("scene_ref") or defaults["scene_ref"]
+            if "pet_refs" in shot:
+                pet_refs = [str(item).strip() for item in list(shot.get("pet_refs") or []) if str(item).strip()]
+            else:
+                pet_refs = [str(item).strip() for item in list(defaults["pet_refs"] or []) if str(item).strip()]
+            if "input_anchor_image_path" in shot:
+                shot_input_anchor_image_path = str(shot.get("input_anchor_image_path") or "")
+            elif "anchor_image_path" in shot:
+                shot_input_anchor_image_path = str(shot.get("anchor_image_path") or "")
+            else:
+                shot_input_anchor_image_path = str(defaults["input_anchor_image_path"] or "")
             if not character_ref or not scene_ref:
                 raise ValueError(f"manju_scene_batch shot {index} is missing character_ref or scene_ref")
             if not storyboard_text:
@@ -954,8 +1057,13 @@ class Orchestrator:
                     "storyboard_text": storyboard_text,
                     "character_ref": str(character_ref),
                     "scene_ref": str(scene_ref),
+                    "pet_refs": pet_refs,
                     "anchor_prompt": str(shot.get("anchor_prompt", defaults["anchor_prompt"]) or ""),
                     "video_prompt": str(shot.get("video_prompt", defaults["video_prompt"]) or ""),
+                    "input_anchor_image_path": shot_input_anchor_image_path,
+                    "force_regenerate_anchor": bool(
+                        shot.get("force_regenerate_anchor", defaults["force_regenerate_anchor"])
+                    ),
                     "aspect_ratio": str(shot.get("aspect_ratio", defaults["aspect_ratio"]) or "16:9"),
                     "model_name": str(shot.get("model_name", defaults["model_name"]) or "nano-banana-2"),
                     "duration_seconds": int(shot.get("duration_seconds") or defaults["duration_seconds"] or 0),
@@ -981,6 +1089,8 @@ class Orchestrator:
         catalog_path = self._resolve_catalog_path()
         character_reference = resolve_catalog_asset_reference(catalog_path, shot["character_ref"], "character")
         scene_reference = resolve_catalog_asset_reference(catalog_path, shot["scene_ref"], "scene")
+        input_anchor_image_path = str(shot.get("input_anchor_image_path") or "").strip()
+        pet_refs = [str(item).strip() for item in list(shot.get("pet_refs") or []) if str(item).strip()]
 
         return {
             "runner_kwargs": {
@@ -988,9 +1098,12 @@ class Orchestrator:
                 "storyboard_id": str(shot["storyboard_id"]),
                 "character_ref": character_reference.asset.asset_id,
                 "scene_ref": scene_reference.asset.asset_id,
+                "pet_refs": pet_refs,
                 "storyboard_text": str(shot.get("storyboard_text") or ""),
                 "anchor_prompt": str(shot.get("anchor_prompt") or ""),
                 "video_prompt": str(shot.get("video_prompt") or ""),
+                "input_anchor_image_path": input_anchor_image_path,
+                "force_regenerate_anchor": bool(shot.get("force_regenerate_anchor", False)),
                 "aspect_ratio": str(shot.get("aspect_ratio") or "16:9"),
                 "model_name": str(shot.get("model_name") or "nano-banana-2"),
                 "duration_seconds": int(shot.get("duration_seconds") or 0),
@@ -1005,6 +1118,7 @@ class Orchestrator:
             },
             "character_asset_id": character_reference.asset.asset_id,
             "scene_asset_id": scene_reference.asset.asset_id,
+            "pet_refs_key": "|".join(sorted(pet_refs)),
             "character_image_path": str(character_reference.selected_file),
             "scene_image_path": str(scene_reference.selected_file),
         }
@@ -1126,6 +1240,8 @@ class Orchestrator:
             "-m",
             "app.cli",
             "run-manju-scene-shot",
+            "--storyboard-id",
+            str(kwargs["storyboard_id"]),
             "--character-ref",
             str(kwargs["character_ref"]),
             "--scene-ref",
@@ -1145,10 +1261,16 @@ class Orchestrator:
             "--manju-model-name",
             str(kwargs["manju_model_name"]),
         ]
+        for pet_ref in list(kwargs.get("pet_refs") or []):
+            command.extend(["--pet-ref", str(pet_ref)])
         if kwargs.get("anchor_prompt"):
             command.extend(["--anchor-prompt", str(kwargs["anchor_prompt"])])
         if kwargs.get("video_prompt"):
             command.extend(["--video-prompt", str(kwargs["video_prompt"])])
+        if kwargs.get("input_anchor_image_path"):
+            command.extend(["--input-anchor-image", str(kwargs["input_anchor_image_path"])])
+        if kwargs.get("force_regenerate_anchor"):
+            command.append("--force-regenerate-anchor")
         if kwargs.get("manju_profile_dir"):
             command.extend(["--manju-profile-dir", str(kwargs["manju_profile_dir"])])
         if kwargs.get("manju_project_url"):

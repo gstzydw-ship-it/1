@@ -51,12 +51,45 @@ class SceneAnchorReviewError(RuntimeError):
     """场景锚点图审查失败。"""
 
 
+def _first_non_empty_env(*names: str, default: str = "") -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return default
+
+
+def get_scene_anchor_image_api_config() -> tuple[str, str]:
+    """Read config for scene anchor image generation.
+
+    Prefer dedicated image-generation vars, then fall back to legacy GEMINI_* vars.
+    """
+
+    api_key = _first_non_empty_env("SCENE_ANCHOR_IMAGE_API_KEY", "GEMINI_API_KEY")
+    base_url = _first_non_empty_env("SCENE_ANCHOR_IMAGE_BASE_URL", "GEMINI_BASE_URL")
+    return api_key, base_url
+
+
+def get_scene_anchor_review_api_config() -> tuple[str, str, str]:
+    """Read config for scene anchor review.
+
+    Prefer dedicated review vars, then fall back to legacy GEMINI_* vars.
+    """
+
+    api_key = _first_non_empty_env("SCENE_ANCHOR_REVIEW_API_KEY", "GEMINI_API_KEY")
+    base_url = _first_non_empty_env("SCENE_ANCHOR_REVIEW_BASE_URL", "GEMINI_BASE_URL")
+    model_name = _first_non_empty_env("SCENE_ANCHOR_REVIEW_MODEL", "GEMINI_MODEL", default="gemini-2.5-flash")
+    return api_key, base_url, model_name
+
+
 def derive_image_edits_endpoint(base_url: str) -> str:
     """从第三方兼容地址归一化出 images/edits 端点。"""
 
     cleaned = (base_url or "").strip().rstrip("/")
     if not cleaned:
-        raise SceneAnchorImageError("缺少第三方图片接口地址，请先配置 GEMINI_BASE_URL。")
+        raise SceneAnchorImageError(
+            "缺少第三方图片接口地址，请先配置 SCENE_ANCHOR_IMAGE_BASE_URL，或继续使用兼容的 GEMINI_BASE_URL。"
+        )
 
     parsed = parse.urlsplit(cleaned)
     host = parsed.netloc.casefold()
@@ -144,10 +177,11 @@ class OpenClawClient:
     def generate_scene_anchor_image(self, request_model: SceneAnchorImageRequest) -> SceneAnchorImageResponse:
         """调用第三方多图编辑接口，输出换场景首帧锚点图。"""
 
-        api_key = os.getenv("GEMINI_API_KEY", "").strip()
-        base_url = os.getenv("GEMINI_BASE_URL", "").strip()
+        api_key, base_url = get_scene_anchor_image_api_config()
         if not api_key:
-            raise SceneAnchorImageError("缺少 GEMINI_API_KEY，无法生成 scene_anchor_image。")
+            raise SceneAnchorImageError(
+                "缺少图片生成接口密钥，请先配置 SCENE_ANCHOR_IMAGE_API_KEY，或继续使用兼容的 GEMINI_API_KEY。"
+            )
 
         endpoint = derive_image_edits_endpoint(base_url)
         output_path = Path(request_model.output_path or f"{request_model.shot_id}_scene_anchor.png")
@@ -155,19 +189,37 @@ class OpenClawClient:
 
         source_images = [
             Path(path)
-            for path in [*request_model.character_reference_paths, *request_model.scene_reference_paths]
+            for path in [
+                *request_model.scene_reference_paths,
+                *request_model.character_reference_paths,
+                *request_model.extra_reference_paths,
+            ]
             if path
         ]
         if not source_images:
             raise SceneAnchorImageError("至少需要一张人物图或场景图，才能生成 scene_anchor_image。")
 
+        request_source_images = source_images
+        reference_board_path = self._build_reference_board(
+            character_images=[Path(path) for path in request_model.character_reference_paths if path],
+            scene_images=[Path(path) for path in request_model.scene_reference_paths if path],
+            extra_images=[Path(path) for path in request_model.extra_reference_paths if path],
+            output_path=output_path,
+        )
+        if reference_board_path is not None:
+            request_source_images = [reference_board_path]
+
         response_payload = self._post_image_edit_request(
             endpoint=endpoint,
             api_key=api_key,
             request_model=request_model,
-            source_images=source_images,
+            source_images=request_source_images,
         )
         image_url = self._write_image_output(response_payload, output_path)
+
+        response_source_images = [str(path) for path in source_images]
+        if reference_board_path is not None:
+            response_source_images.append(str(reference_board_path))
 
         return SceneAnchorImageResponse(
             shot_id=request_model.shot_id,
@@ -175,18 +227,69 @@ class OpenClawClient:
             model_name=request_model.model_name,
             aspect_ratio=request_model.aspect_ratio,
             output_path=str(output_path),
-            source_images=[str(path) for path in source_images],
+            source_images=response_source_images,
             image_url=image_url,
         )
+
+    def _build_reference_board(
+        self,
+        *,
+        character_images: list[Path],
+        scene_images: list[Path],
+        extra_images: list[Path],
+        output_path: Path,
+    ) -> Path | None:
+        source_images = [*character_images, *scene_images, *extra_images]
+        if len(source_images) <= 1:
+            return None
+
+        try:
+            from PIL import Image, ImageOps
+        except Exception:
+            return None
+
+        board_path = output_path.with_name(f"{output_path.stem}_reference_board.png")
+        board_path.parent.mkdir(parents=True, exist_ok=True)
+
+        canvas_width = 1600
+        canvas_height = 900
+        margin = 24
+        left_width = 420
+        gap = 16
+        right_width = canvas_width - left_width - margin * 2 - gap
+        card_height = (canvas_height - margin * 2 - gap * (len(source_images) - 1)) // len(source_images)
+
+        canvas = Image.new("RGB", (canvas_width, canvas_height), (247, 244, 236))
+
+        scene_path = scene_images[0] if scene_images else source_images[-1]
+        if scene_path:
+            with Image.open(scene_path) as scene_image:
+                scene_rgb = ImageOps.exif_transpose(scene_image).convert("RGB")
+                scene_fill = ImageOps.fit(scene_rgb, (right_width, canvas_height - margin * 2), method=Image.Resampling.LANCZOS)
+                canvas.paste(scene_fill, (margin + left_width + gap, margin))
+
+        side_images = [*character_images, *extra_images]
+        if not side_images:
+            side_images = source_images
+        card_height = (canvas_height - margin * 2 - gap * (len(side_images) - 1)) // len(side_images)
+        for index, image_path in enumerate(side_images):
+            top = margin + index * (card_height + gap)
+            with Image.open(image_path) as image:
+                rgb = ImageOps.exif_transpose(image).convert("RGB")
+                fitted = ImageOps.fit(rgb, (left_width, card_height), method=Image.Resampling.LANCZOS)
+                canvas.paste(fitted, (margin, top))
+
+        canvas.save(board_path, format="PNG")
+        return board_path
 
     def review_scene_anchor_image(self, request_model: SceneAnchorReviewRequest) -> SceneAnchorReviewResponse:
         """调用 Gemini 多模态接口审查首帧锚点图。"""
 
-        api_key = os.getenv("GEMINI_API_KEY", "").strip()
-        base_url = os.getenv("GEMINI_BASE_URL", "").strip()
-        model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
+        api_key, base_url, model_name = get_scene_anchor_review_api_config()
         if not api_key:
-            raise SceneAnchorReviewError("缺少 GEMINI_API_KEY，无法审查 scene_anchor_image。")
+            raise SceneAnchorReviewError(
+                "缺少首帧图审查密钥，请先配置 SCENE_ANCHOR_REVIEW_API_KEY，或继续使用兼容的 GEMINI_API_KEY。"
+            )
 
         image_path = Path(request_model.image_path)
         if not image_path.exists():

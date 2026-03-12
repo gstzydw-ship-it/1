@@ -88,6 +88,7 @@ class SceneAnchorImageRequest(BaseModel):
     prompt: str
     character_reference_paths: list[str] = Field(default_factory=list)
     scene_reference_paths: list[str] = Field(default_factory=list)
+    extra_reference_paths: list[str] = Field(default_factory=list)
     model_name: str = "nano-banana-2"
     aspect_ratio: str = "16:9"
     output_path: str | None = None

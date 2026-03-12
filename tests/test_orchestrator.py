@@ -548,10 +548,14 @@ def test_orchestrator_run_executes_manju_scene_batch_workflow(tmp_path: Path) ->
     script_path = _write_manju_scene_batch_script(tmp_path)
     _write_catalog_fixture(tmp_path)
     scene_runner = FakeSceneShotRunner()
+    analyzer = FakeVideoAnalyzer()
+    transition_extractor = FakeTransitionExtractor()
     orchestrator = Orchestrator(
         database_url=database_url,
         project_root=tmp_path,
         scene_shot_runner=scene_runner,
+        video_analyzer=analyzer,
+        transition_frame_extractor=transition_extractor,
     )
 
     result = orchestrator.run(script_path=str(script_path))
@@ -563,8 +567,14 @@ def test_orchestrator_run_executes_manju_scene_batch_workflow(tmp_path: Path) ->
     assert result["steps"]["scene_batch"]["status"] == "completed"
     assert scene_runner.calls[0]["character_ref"] == "CHAR_LINBAI__v1"
     assert scene_runner.calls[0]["scene_ref"] == "SCENE_CLASSROOM__v1"
+    assert scene_runner.calls[0]["input_anchor_image_path"] == ""
+    assert scene_runner.calls[1]["input_anchor_image_path"].endswith("manju_batch_001_transition.png")
     assert Path(result["steps"]["scene_batch"]["shots"][0]["character_reference_image"]).name == "linbai_1.png"
     assert Path(result["steps"]["scene_batch"]["shots"][0]["scene_reference_image"]).name == "classroom_1.png"
+    assert result["steps"]["scene_batch"]["shots"][0]["transition_frame_path"].endswith("manju_batch_001_transition.png")
+    assert result["steps"]["scene_batch"]["shots"][1]["anchor_source"] == "transition"
+    assert len(analyzer.calls) == 1
+    assert len(transition_extractor.calls) == 1
 
     engine = create_engine(database_url, echo=False)
     with Session(engine) as session:
@@ -576,8 +586,62 @@ def test_orchestrator_run_executes_manju_scene_batch_workflow(tmp_path: Path) ->
     assert task_run.workflow_mode == "manju_scene_batch"
     assert len(storyboards) == 2
     assert all(storyboard.status == "completed" for storyboard in storyboards)
+    assert storyboards[0].transition_frame_path
     assert len(video_records) == 2
     assert all(video_record.status == "completed" for video_record in video_records)
+
+
+def test_orchestrator_manju_scene_batch_force_regenerates_anchor_and_keeps_pet_refs(tmp_path: Path) -> None:
+    database_url = _build_database_url(tmp_path)
+    _write_catalog_fixture(tmp_path)
+    provided_anchor = tmp_path / "provided_anchor.png"
+    provided_anchor.write_bytes(b"anchor")
+    script_path = tmp_path / "manju_scene_batch_force.json"
+    script_path.write_text(
+        json.dumps(
+            {
+                "workflow_mode": "manju_scene_batch",
+                "character_ref": "CHAR_LINBAI__v1",
+                "scene_ref": "SCENE_CLASSROOM__v1",
+                "pet_refs": ["dog"],
+                "input_anchor_image_path": str(provided_anchor),
+                "manju_headless": True,
+                "shots": [
+                    {
+                        "storyboard_id": "manju_batch_force_001",
+                        "storyboard_text": "Linbai stands with the dog.",
+                        "force_regenerate_anchor": True,
+                    },
+                    {
+                        "storyboard_id": "manju_batch_force_002",
+                        "storyboard_text": "Linbai continues in the same classroom with the dog.",
+                        "input_anchor_image_path": "",
+                    },
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    scene_runner = FakeSceneShotRunner()
+    analyzer = FakeVideoAnalyzer()
+    transition_extractor = FakeTransitionExtractor()
+    orchestrator = Orchestrator(
+        database_url=database_url,
+        project_root=tmp_path,
+        scene_shot_runner=scene_runner,
+        video_analyzer=analyzer,
+        transition_frame_extractor=transition_extractor,
+    )
+
+    result = orchestrator.run(script_path=str(script_path))
+
+    assert result["status"] == "success"
+    assert scene_runner.calls[0]["pet_refs"] == ["dog"]
+    assert scene_runner.calls[0]["force_regenerate_anchor"] is True
+    assert scene_runner.calls[0]["input_anchor_image_path"] == ""
+    assert scene_runner.calls[1]["input_anchor_image_path"].endswith("manju_batch_force_001_transition.png")
 
 
 def test_orchestrator_resume_retries_manju_scene_shot_workflow(tmp_path: Path) -> None:
@@ -622,6 +686,8 @@ def test_orchestrator_resume_retries_manju_scene_batch_from_failed_shot(tmp_path
     _write_catalog_fixture(tmp_path)
     failing_runner = FakeSceneShotRunner()
     succeeding_runner = FakeSceneShotRunner()
+    analyzer = FakeVideoAnalyzer()
+    transition_extractor = FakeTransitionExtractor()
 
     def flaky_scene_runner(**kwargs):
         if kwargs["storyboard_id"] == "manju_batch_002":
@@ -632,6 +698,8 @@ def test_orchestrator_resume_retries_manju_scene_batch_from_failed_shot(tmp_path
         database_url=database_url,
         project_root=tmp_path,
         scene_shot_runner=flaky_scene_runner,
+        video_analyzer=analyzer,
+        transition_frame_extractor=transition_extractor,
     )
 
     with pytest.raises(RuntimeError, match="scene shot failed"):
@@ -646,6 +714,7 @@ def test_orchestrator_resume_retries_manju_scene_batch_from_failed_shot(tmp_path
     assert resumed["resumed_from_shot_index"] == 2
     assert len(succeeding_runner.calls) == 1
     assert succeeding_runner.calls[0]["storyboard_id"] == "manju_batch_002"
+    assert succeeding_runner.calls[0]["input_anchor_image_path"].endswith("manju_batch_001_transition.png")
 
     engine = create_engine(database_url, echo=False)
     with Session(engine) as session:

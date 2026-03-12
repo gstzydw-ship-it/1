@@ -223,6 +223,21 @@ def test_estimate_manju_duration_seconds_prefers_short_locked_shots() -> None:
     assert cli_module._estimate_manju_duration_seconds("众人围观，周浩天搂着陈夏娜走出去。") >= 6
 
 
+def test_estimate_manju_duration_seconds_keeps_dialogue_reaction_shots_short() -> None:
+    assert cli_module._estimate_manju_duration_seconds("林可儿（同样惊讶）：你认识我？固定中景，对话反应镜头。") == 4
+    assert cli_module._estimate_manju_duration_seconds("林白（语气试探）：还真有件事想请你帮忙。固定机位，人物站定。") == 4
+
+
+def test_estimate_manju_duration_seconds_gives_establishing_shots_more_time() -> None:
+    assert cli_module._estimate_manju_duration_seconds("林白来到学校宿舍外道路，镜头建立放学路上的空间关系。") == 5
+    assert cli_module._estimate_manju_duration_seconds("林白走进街角事故现场，周围路人与浓烟同时进入画面。") >= 6
+
+
+def test_estimate_manju_duration_seconds_prefers_longer_disaster_and_rescue_motion() -> None:
+    assert cli_module._estimate_manju_duration_seconds("街角突然爆炸，浓烟滚滚，林白带着小黄朝事发地奔跑。") >= 6
+    assert cli_module._estimate_manju_duration_seconds("林白救人要紧，脱下校服裹住拳头，一拳砸碎车窗，再把少女拉出来。") == 7
+
+
 def test_cli_run_manju_scene_shot_stops_when_anchor_review_fails(monkeypatch, tmp_path: Path) -> None:
     _write_catalog(tmp_path)
     monkeypatch.setattr(cli_module, "get_config", lambda: SimpleNamespace(project_root=tmp_path))

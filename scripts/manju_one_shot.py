@@ -385,6 +385,56 @@ def _select_inline_select_option(row: Locator, target_value: str) -> bool:
     return False
 
 
+def _set_select_value(select: Locator, *, target_value: str) -> bool:
+    for _ in range(10):
+        try:
+            disabled = select.is_disabled(timeout=1_000)
+        except Exception:
+            disabled = False
+        if disabled:
+            select.page.wait_for_timeout(500)
+            continue
+
+        options = select.locator("option")
+        option_values: list[str] = []
+        option_texts: list[str] = []
+
+        for option_index in range(options.count()):
+            option = options.nth(option_index)
+            try:
+                option_values.append((option.get_attribute("value") or "").strip())
+                option_texts.append(option.inner_text(timeout=200).strip())
+            except Exception:
+                continue
+
+        normalized_target = _normalize_ui_text(target_value)
+
+        for option_text in option_texts:
+            if _normalize_ui_text(option_text) == normalized_target:
+                select.select_option(label=option_text, timeout=3_000)
+                return True
+
+        if target_value == "普通模式" and {"true", "false"}.issubset(set(option_values)):
+            select.select_option(value="false", timeout=3_000)
+            return True
+
+        if target_value == "草稿模式" and {"true", "false"}.issubset(set(option_values)):
+            select.select_option(value="true", timeout=3_000)
+            return True
+
+        if target_value.endswith("s") and target_value[:-1].isdigit() and target_value[:-1] in option_values:
+            select.select_option(value=target_value[:-1], timeout=3_000)
+            return True
+
+        if target_value in option_values:
+            select.select_option(value=target_value, timeout=3_000)
+            return True
+
+        return False
+
+    return False
+
+
 def _select_dropdown_value(row: Locator, *, current_value: str, target_value: str) -> None:
     if current_value == target_value:
         return
@@ -466,6 +516,41 @@ def _ensure_generation_settings(
     model_name: str,
 ) -> None:
     """按稳定顺序设置 Manju 页面参数。"""
+
+    selects = row.locator("select")
+    if selects.count() >= 5:
+        ordered_targets = [
+            ("mode", selects.nth(4), mode),
+            ("model", selects.nth(0), model_name),
+            ("duration", selects.nth(1), f"{duration_seconds}s"),
+            ("resolution", selects.nth(2), resolution),
+            ("aspect_ratio", selects.nth(3), aspect_ratio),
+        ]
+        for label, select, target in ordered_targets:
+            if not _set_select_value(select, target_value=target):
+                raise RuntimeError(f"未找到 {label} 的目标参数选项：{target}")
+            row.page.wait_for_timeout(500)
+
+        expected_values = {
+            "model": model_name,
+            "duration": str(duration_seconds),
+            "resolution": resolution,
+            "aspect_ratio": aspect_ratio,
+            "mode": "false" if mode == "普通模式" else "true" if mode == "草稿模式" else mode,
+        }
+        actual_values = {
+            "model": selects.nth(0).input_value(timeout=3_000).strip(),
+            "duration": selects.nth(1).input_value(timeout=3_000).strip(),
+            "resolution": selects.nth(2).input_value(timeout=3_000).strip(),
+            "aspect_ratio": selects.nth(3).input_value(timeout=3_000).strip(),
+            "mode": selects.nth(4).input_value(timeout=3_000).strip(),
+        }
+        for label, expected in expected_values.items():
+            if actual_values[label] != expected:
+                raise RuntimeError(
+                    f"Manju 参数未成功切换：{label} 期望 {expected}，实际 {actual_values[label]}"
+                )
+        return
 
     _select_dropdown_value(row, current_value="普通模式", target_value=mode)
     _select_dropdown_value(row, current_value="480p", target_value=resolution)

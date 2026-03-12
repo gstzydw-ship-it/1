@@ -46,8 +46,10 @@ def _write_catalog(project_root: Path) -> None:
     )
     (project_root / "assets" / "characters").mkdir(parents=True, exist_ok=True)
     (project_root / "assets" / "scenes").mkdir(parents=True, exist_ok=True)
+    (project_root / "assets" / "extras" / "pets").mkdir(parents=True, exist_ok=True)
     (project_root / "assets" / "characters" / "linbai.png").write_bytes(b"image")
     (project_root / "assets" / "scenes" / "gate.png").write_bytes(b"image")
+    (project_root / "assets" / "extras" / "pets" / "dog.png").write_bytes(b"image")
 
 
 def test_run_manju_one_shot_script_passes_optional_flags(monkeypatch, tmp_path: Path) -> None:
@@ -107,7 +109,11 @@ def test_run_manju_scene_shot_forwards_runtime_options(monkeypatch, tmp_path: Pa
             model_name=request_model.model_name,
             aspect_ratio=request_model.aspect_ratio,
             output_path=str(output_path),
-            source_images=[*request_model.character_reference_paths, *request_model.scene_reference_paths],
+            source_images=[
+                *request_model.character_reference_paths,
+                *request_model.scene_reference_paths,
+                *request_model.extra_reference_paths,
+            ],
         )
 
     def fake_review(self, request_model):
@@ -211,7 +217,11 @@ def test_run_manju_scene_shot_retries_anchor_once_on_revise(monkeypatch, tmp_pat
             model_name=request_model.model_name,
             aspect_ratio=request_model.aspect_ratio,
             output_path=str(output_path),
-            source_images=[*request_model.character_reference_paths, *request_model.scene_reference_paths],
+            source_images=[
+                *request_model.character_reference_paths,
+                *request_model.scene_reference_paths,
+                *request_model.extra_reference_paths,
+            ],
         )
 
     def fake_review(self, request_model):
@@ -271,7 +281,11 @@ def test_run_manju_scene_shot_retries_video_once_on_revise(monkeypatch, tmp_path
             model_name=request_model.model_name,
             aspect_ratio=request_model.aspect_ratio,
             output_path=str(output_path),
-            source_images=[*request_model.character_reference_paths, *request_model.scene_reference_paths],
+            source_images=[
+                *request_model.character_reference_paths,
+                *request_model.scene_reference_paths,
+                *request_model.extra_reference_paths,
+            ],
         )
 
     def fake_review(self, request_model):
@@ -340,7 +354,152 @@ def test_run_manju_scene_shot_retries_video_once_on_revise(monkeypatch, tmp_path
 
     assert result.exit_code == 0
     assert run_prompts == [
-        "主体：Linbai；场景：Gate；动作：Linbai enters the gate.；镜头：固定中景；约束：保持固定机位，构图稳定，不运镜，不切换景别，保持人物脸部、发型、服装和场景结构一致，不新增人物，画面中禁止出现字幕、文字、logo、水印和多余界面元素，背景墙面干净。",
+        "主体：Linbai；场景：Gate；动作：Linbai enters the gate.；镜头：固定中近景，避免远景小人；约束：保持固定机位，构图稳定，不运镜，不切换景别，保持人物脸部、发型、服装和场景结构一致，不新增人物，使用固定中近景，让Linbai脸部在画面中清晰可辨；如果背景路人出现，只能作为远景弱化轮廓，不允许中景清晰露脸但面部崩坏；画面中禁止出现字幕、文字、logo、水印和多余界面元素，背景墙面干净。",
         "patched video prompt",
     ]
     assert "video_retry: yes" in result.stdout
+
+
+def test_run_manju_scene_shot_uses_existing_anchor_image(monkeypatch, tmp_path: Path) -> None:
+    _write_catalog(tmp_path)
+    monkeypatch.setattr(cli_module, "get_config", lambda: SimpleNamespace(project_root=tmp_path))
+
+    existing_anchor = tmp_path / "existing_anchor.png"
+    existing_anchor.write_bytes(b"anchor")
+
+    def fail_generate(*args, **kwargs):
+        raise AssertionError("should not generate anchor when existing input anchor is provided")
+
+    captured: dict[str, object] = {}
+
+    def fake_run_script(**kwargs):
+        captured.update(kwargs)
+        output_path = kwargs["output_path"]
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"video")
+        return subprocess.CompletedProcess(args=["python"], returncode=0, stdout="ok\n", stderr="")
+
+    def fake_video_audit(**kwargs):
+        return SimpleNamespace(
+            action="approve",
+            selected_issue_ids=[],
+            review_summary="ok",
+            prompt_patch="",
+            revised_prompt_main="",
+            report_path=str(tmp_path / "outputs" / "reviews" / "audit.html"),
+        )
+
+    monkeypatch.setattr(cli_module.OpenClawService, "generate_scene_anchor_image", fail_generate)
+    monkeypatch.setattr(cli_module.OpenClawService, "review_scene_anchor_image", fail_generate)
+    monkeypatch.setattr(cli_module, "_run_manju_one_shot_script", fake_run_script)
+    monkeypatch.setattr(cli_module, "_run_gemini_auto_audit", fake_video_audit)
+
+    result = runner.invoke(
+        app,
+        [
+            "run-manju-scene-shot",
+            "--storyboard-id",
+            "shot_009",
+            "--character-ref",
+            "Linbai",
+            "--scene-ref",
+            "Gate",
+            "--storyboard-text",
+            "Linbai keeps walking.",
+            "--input-anchor-image",
+            str(existing_anchor),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["image_path"] == existing_anchor
+    assert "anchor_source: existing" in result.stdout
+    assert "anchor_review_action: skipped_existing_anchor" in result.stdout
+
+
+def test_run_manju_scene_shot_force_regenerates_anchor_with_pet_refs(monkeypatch, tmp_path: Path) -> None:
+    _write_catalog(tmp_path)
+    monkeypatch.setattr(cli_module, "get_config", lambda: SimpleNamespace(project_root=tmp_path))
+
+    existing_anchor = tmp_path / "existing_anchor.png"
+    existing_anchor.write_bytes(b"anchor")
+    captured_generate: dict[str, object] = {}
+    captured_run: dict[str, object] = {}
+
+    def fake_generate(self, request_model, *, project_root=None):
+        captured_generate["request_model"] = request_model
+        output_path = tmp_path / "outputs" / "images" / "scene_anchor.png"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"generated")
+        return SceneAnchorImageResponse(
+            shot_id=request_model.shot_id,
+            prompt=request_model.prompt,
+            model_name=request_model.model_name,
+            aspect_ratio=request_model.aspect_ratio,
+            output_path=str(output_path),
+            source_images=[
+                *request_model.character_reference_paths,
+                *request_model.scene_reference_paths,
+                *request_model.extra_reference_paths,
+            ],
+        )
+
+    def fake_review(self, request_model):
+        return SceneAnchorReviewResponse(
+            shot_id=request_model.shot_id,
+            action="approve",
+            review_summary="ok",
+            selected_issue_ids=[],
+            prompt_patch="",
+            revised_prompt="",
+            model_name="gemini-2.5-flash",
+        )
+
+    def fake_run_script(**kwargs):
+        captured_run.update(kwargs)
+        output_path = kwargs["output_path"]
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"video")
+        return subprocess.CompletedProcess(args=["python"], returncode=0, stdout="ok\n", stderr="")
+
+    def fake_video_audit(**kwargs):
+        return SimpleNamespace(
+            action="approve",
+            selected_issue_ids=[],
+            review_summary="ok",
+            prompt_patch="",
+            revised_prompt_main="",
+            report_path=str(tmp_path / "outputs" / "reviews" / "audit.html"),
+        )
+
+    monkeypatch.setattr(cli_module.OpenClawService, "generate_scene_anchor_image", fake_generate)
+    monkeypatch.setattr(cli_module.OpenClawService, "review_scene_anchor_image", fake_review)
+    monkeypatch.setattr(cli_module, "_run_manju_one_shot_script", fake_run_script)
+    monkeypatch.setattr(cli_module, "_run_gemini_auto_audit", fake_video_audit)
+
+    result = runner.invoke(
+        app,
+        [
+            "run-manju-scene-shot",
+            "--storyboard-id",
+            "shot_010",
+            "--character-ref",
+            "Linbai",
+            "--scene-ref",
+            "Gate",
+            "--pet-ref",
+            "dog",
+            "--storyboard-text",
+            "Linbai walks with a dog.",
+            "--input-anchor-image",
+            str(existing_anchor),
+            "--force-regenerate-anchor",
+        ],
+    )
+
+    assert result.exit_code == 0
+    request_model = captured_generate["request_model"]
+    assert request_model.extra_reference_paths
+    assert Path(request_model.extra_reference_paths[0]).name == "dog.png"
+    assert captured_run["image_path"] == tmp_path / "outputs" / "images" / "scene_anchor.png"
+    assert "anchor_source: generated" in result.stdout
