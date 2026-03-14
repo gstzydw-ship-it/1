@@ -1,12 +1,12 @@
 const heroBadges = document.querySelector("#hero-badges");
 const heroNote = document.querySelector("#hero-note");
 const statusGrid = document.querySelector("#status-grid");
-const currentTask = document.querySelector("#current-task");
-const latestReply = document.querySelector("#latest-reply");
-const recentTasks = document.querySelector("#recent-tasks");
 const recentVideos = document.querySelector("#recent-videos");
+const taskGlance = document.querySelector("#task-glance");
 const commandList = document.querySelector("#command-list");
 const outputLog = document.querySelector("#output-log");
+const conversationFeed = document.querySelector("#conversation-feed");
+const liveStatus = document.querySelector("#live-status");
 const refreshButton = document.querySelector("#refresh-button");
 const dashboardButton = document.querySelector("#dashboard-button");
 const copyDashboardButton = document.querySelector("#copy-dashboard-button");
@@ -17,27 +17,28 @@ const agentSubmit = document.querySelector("#agent-submit");
 const agentStatusLine = document.querySelector("#agent-status-line");
 
 const appState = {
-  watchedTaskId: null,
-  pollTimer: null,
   latestStatus: null,
+  watchedTaskId: null,
+  optimisticTask: null,
+  pollTimer: null,
 };
 
 const actionTitles = {
   doctor: "项目体检",
   test_asset_planner: "测试素材规划",
   test_prompt_composer: "测试提示词组装",
-  open_outputs: "打开视频输出目录",
+  open_outputs: "打开输出目录",
   openclaw_status: "查看 OpenClaw 状态",
-  open_dashboard: "辅助打开官方 Dashboard",
-  copy_dashboard_url: "复制带令牌链接",
+  open_dashboard: "打开官方页",
+  copy_dashboard_url: "复制令牌链接",
   agent_prompt: "Agent 回复",
 };
 
-const taskStatusTone = {
-  queued: "neutral",
-  running: "running",
-  succeeded: "ok",
-  failed: "warn",
+const taskStatusLabel = {
+  queued: "已提交",
+  running: "运行中",
+  succeeded: "已完成",
+  failed: "失败",
 };
 
 function escapeHtml(value) {
@@ -51,6 +52,14 @@ function escapeHtml(value) {
 
 function isTerminalTask(task) {
   return task?.status === "succeeded" || task?.status === "failed";
+}
+
+function summarizeText(text, limit = 180) {
+  const cleaned = String(text || "").replace(/\s+/g, " ").trim();
+  if (cleaned.length <= limit) {
+    return cleaned;
+  }
+  return `${cleaned.slice(0, limit - 3).trimEnd()}...`;
 }
 
 function formatSeconds(value) {
@@ -67,32 +76,20 @@ function formatSeconds(value) {
   return `${hours} 小时 ${minutes % 60} 分`;
 }
 
-function summarizeForUi(text, limit = 220) {
-  const cleaned = String(text || "").replace(/\s+/g, " ").trim();
-  if (cleaned.length <= limit) {
-    return cleaned;
-  }
-  return `${cleaned.slice(0, limit - 3).trimEnd()}...`;
-}
-
-function pickReplyText(task) {
+function taskTone(task) {
   if (!task) {
-    return "";
+    return "neutral";
   }
-  return String(task.reply_text || task.reply_preview || task.summary || "").trim();
-}
-
-function taskToneClass(task) {
-  return `tone-${taskStatusTone[task?.status] || "neutral"}`;
-}
-
-function renderEmptyBlock(target, title, detail) {
-  target.innerHTML = `
-    <div class="empty-state block-empty">
-      <div class="empty-title">${escapeHtml(title)}</div>
-      <div class="empty-detail">${escapeHtml(detail)}</div>
-    </div>
-  `;
+  if (task.status === "failed") {
+    return "warn";
+  }
+  if (task.status === "succeeded") {
+    return "ok";
+  }
+  if (task.status === "running" || task.status === "queued") {
+    return "running";
+  }
+  return "neutral";
 }
 
 function formatLogPayload(payload) {
@@ -103,8 +100,8 @@ function formatLogPayload(payload) {
   if (payload?.task) {
     const task = payload.task;
     const sections = [
-      `任务编号:\n${task.id}`,
-      `当前状态:\n${task.status_label || task.status}`,
+      `任务编号:\n${task.id || "-"}`,
+      `当前状态:\n${task.status_label || task.status || "-"}`,
       `任务内容:\n${task.message || ""}`,
     ];
     if (task.stage) {
@@ -153,6 +150,7 @@ async function fetchJson(url, options = {}) {
       ...(options.headers || {}),
     },
   });
+
   const payload = await response.json();
   if (!response.ok) {
     throw new Error(payload?.error || `请求失败 (${response.status})`);
@@ -168,12 +166,87 @@ async function fetchTask(taskId) {
   return fetchJson(`/api/task/${encodeURIComponent(taskId)}`, { method: "GET" });
 }
 
+function normalizeTask(task, fallbackId) {
+  const status =
+    task?.status ||
+    (task?.ok === false ? "failed" : task?.ok === true ? "succeeded" : "queued");
+
+  const replyText = String(task?.reply_text || task?.reply_preview || task?.summary || "").trim();
+
+  return {
+    id: task?.id || fallbackId,
+    message: String(task?.message || "").trim(),
+    status,
+    status_label: task?.status_label || taskStatusLabel[status] || "未知",
+    created_at: task?.created_at || "",
+    started_at: task?.started_at || "",
+    ended_at: task?.ended_at || "",
+    stage: task?.stage || "",
+    summary: String(task?.summary || "").trim(),
+    reply_text: replyText,
+    reply_preview: String(task?.reply_preview || "").trim(),
+    ok: task?.ok,
+    returncode: task?.returncode,
+    elapsed_seconds: Number(task?.elapsed_seconds) || 0,
+  };
+}
+
+function getTimelineTasks(data) {
+  const ordered = [];
+  const indexById = new Map();
+  const recent = [...(data?.recent_tasks || [])].reverse();
+
+  recent.forEach((task, index) => {
+    const normalized = normalizeTask(task, `recent-${index}`);
+    indexById.set(normalized.id, ordered.length);
+    ordered.push(normalized);
+  });
+
+  (data?.active_tasks || []).forEach((task, index) => {
+    const normalized = normalizeTask(task, `active-${index}`);
+    if (indexById.has(normalized.id)) {
+      ordered[indexById.get(normalized.id)] = normalized;
+      return;
+    }
+    indexById.set(normalized.id, ordered.length);
+    ordered.push(normalized);
+  });
+
+  if (appState.optimisticTask) {
+    const optimistic = normalizeTask(appState.optimisticTask, appState.optimisticTask.id || "optimistic");
+    if (indexById.has(optimistic.id)) {
+      const current = ordered[indexById.get(optimistic.id)];
+      if (!isTerminalTask(current)) {
+        ordered[indexById.get(optimistic.id)] = optimistic;
+      }
+    } else {
+      ordered.push(optimistic);
+    }
+  }
+
+  return ordered.sort((left, right) => {
+    const leftKey = left.created_at || left.started_at || left.ended_at || left.id;
+    const rightKey = right.created_at || right.started_at || right.ended_at || right.id;
+    return leftKey.localeCompare(rightKey);
+  });
+}
+
+function getCurrentTask(data) {
+  const activeTasks = data?.active_tasks || [];
+  const watched = activeTasks.find((task) => task.id === appState.watchedTaskId);
+  const source = watched || activeTasks[0] || data?.latest_reply_task || null;
+  return source ? normalizeTask(source, "latest") : null;
+}
+
 function renderHero(data) {
+  const tasks = getTimelineTasks(data);
+  const latest = tasks.at(-1);
+
   const badges = [
     { label: "OpenClaw", value: data.openclaw.installed ? data.openclaw.version : "未安装" },
     { label: "Agent", value: data.openclaw.agent_id },
     { label: "网关", value: data.openclaw.gateway_running ? "运行中" : "未运行" },
-    { label: "主入口", value: "本地任务中心" },
+    { label: "最近状态", value: latest?.status_label || "等待会话" },
   ];
 
   heroBadges.innerHTML = badges
@@ -188,52 +261,44 @@ function renderHero(data) {
     .join("");
 
   if (data.openclaw.gateway_running) {
-    heroNote.textContent = "OpenClaw 网关正常运行。你现在可以在下面直接发任务，页面会显示状态变化和最终回复。";
+    heroNote.textContent = "网关正常运行。你现在可以像聊天一样连续给 OpenClaw 下发任务，回复会直接留在右侧会话里。";
     dashboardButton.disabled = false;
     copyDashboardButton.disabled = false;
-    dashboardHint.textContent = "官方 Dashboard 可能断线或报 token 错误。日常发任务请优先使用本地任务中心。";
+    dashboardHint.textContent = "官方 Dashboard 仍可能断线。日常用这页就够了，需要时再复制令牌链接。";
     return;
   }
 
-  heroNote.textContent = "网关当前未运行。先点“查看 OpenClaw 状态”或“刷新状态”，确认服务起来后再发任务。";
+  heroNote.textContent = "网关当前未运行。先点右侧刷新或检查状态，确认服务起来后再发任务。";
   dashboardButton.disabled = true;
   copyDashboardButton.disabled = true;
   dashboardHint.textContent = "网关未运行时，不建议尝试打开官方 Dashboard。";
 }
 
-function renderStatuses(data) {
+function renderStatusCards(data) {
   const dirtyCount = Array.isArray(data.git.status) ? data.git.status.length : 0;
   const cards = [
     {
-      label: "OpenClaw 版本",
-      value: data.openclaw.installed ? data.openclaw.version : "未安装",
-      meta: data.openclaw.installed ? `Agent：${data.openclaw.agent_id}` : "WSL 中尚未检测到 OpenClaw",
-      tone: data.openclaw.installed ? "ok" : "warn",
-    },
-    {
-      label: "网关状态",
+      label: "连接",
       value: data.openclaw.gateway_running ? "运行中" : "未运行",
-      meta: data.openclaw.gateway_running ? "可以直接下发任务" : "先检查 OpenClaw 状态",
+      meta: data.openclaw.gateway_running ? "本地对话台可用" : "先刷新或重启服务",
       tone: data.openclaw.gateway_running ? "ok" : "warn",
     },
     {
-      label: "官方 Dashboard",
+      label: "官方页",
       value: data.openclaw.dashboard_direct_accessible ? "可直连" : "不稳定",
-      meta: data.openclaw.dashboard_direct_accessible
-        ? `${data.openclaw.dashboard_url} | 仍建议优先用本地任务中心`
-        : "这台机器上官方页面 websocket 不稳定，建议把它当辅助入口。",
+      meta: data.openclaw.dashboard_direct_accessible ? "能打开，但仍建议用本地页" : "容易断线，仅作辅助入口",
       tone: data.openclaw.dashboard_direct_accessible ? "neutral" : "warn",
     },
     {
       label: "工作区",
       value: ".openclaw-workspace",
-      meta: data.workspace_path,
+      meta: summarizeText(data.workspace_path, 56),
       tone: "neutral",
     },
     {
-      label: "Git 分支",
+      label: "Git",
       value: data.git.branch,
-      meta: `备份分支：${data.git.backup_branch} | 未提交文件：${dirtyCount}`,
+      meta: dirtyCount ? `有 ${dirtyCount} 个未提交变更` : "工作区干净",
       tone: dirtyCount ? "warn" : "ok",
     },
   ];
@@ -241,7 +306,7 @@ function renderStatuses(data) {
   statusGrid.innerHTML = cards
     .map(
       (card) => `
-        <article class="status-card status-${escapeHtml(card.tone)}">
+        <article class="status-card status-${card.tone}">
           <p class="status-label">${escapeHtml(card.label)}</p>
           <p class="status-value">${escapeHtml(card.value)}</p>
           <p class="status-meta">${escapeHtml(card.meta)}</p>
@@ -251,142 +316,169 @@ function renderStatuses(data) {
     .join("");
 }
 
-function renderCurrentTask(task) {
-  if (!task) {
-    renderEmptyBlock(currentTask, "当前没有任务在跑", "发布一个任务后，这里会实时显示任务编号、阶段、耗时和当前状态。");
-    return;
-  }
-
-  const replyHint = task.reply_text
-    ? `<div class="task-snippet"><strong>回复预览：</strong>${escapeHtml(summarizeForUi(task.reply_text, 260))}</div>`
-    : "";
-
-  currentTask.innerHTML = `
-    <article class="live-card ${taskToneClass(task)}">
-      <div class="live-head">
-        <div>
-          <p class="live-kicker">任务编号</p>
-          <h3>${escapeHtml(task.id)}</h3>
-        </div>
-        <span class="status-pill ${taskToneClass(task)}">${escapeHtml(task.status_label || task.status)}</span>
-      </div>
-      <p class="live-message">${escapeHtml(task.message || "")}</p>
-      <div class="meta-grid">
-        <div class="meta-block">
-          <span class="meta-label">提交时间</span>
-          <span class="meta-value">${escapeHtml(task.created_at || "-")}</span>
-        </div>
-        <div class="meta-block">
-          <span class="meta-label">已运行</span>
-          <span class="meta-value">${escapeHtml(formatSeconds(task.elapsed_seconds))}</span>
-        </div>
-      </div>
-      <div class="stage-box">
-        <span class="meta-label">当前阶段</span>
-        <p>${escapeHtml(task.stage || "等待状态更新")}</p>
-      </div>
-      ${replyHint}
-    </article>
-  `;
-}
-
-function renderLatestReply(task) {
-  if (!task || !pickReplyText(task)) {
-    renderEmptyBlock(latestReply, "还没有可展示的回复", "等任务结束后，最终答复会直接出现在这里。");
-    return;
-  }
-
-  latestReply.innerHTML = `
-    <article class="reply-card ${taskToneClass(task)}">
-      <div class="reply-head">
-        <div>
-          <p class="live-kicker">来自任务</p>
-          <h3>${escapeHtml(task.id || "最近一次任务")}</h3>
-        </div>
-        <span class="status-pill ${taskToneClass(task)}">${escapeHtml(task.status_label || task.status || "已完成")}</span>
-      </div>
-      <p class="reply-meta">任务内容：${escapeHtml(summarizeForUi(task.message || "", 120))}</p>
-      <pre class="reply-pre">${escapeHtml(pickReplyText(task))}</pre>
-    </article>
-  `;
-}
-
-function renderTasks(items) {
+function renderVideos(items) {
   if (!items?.length) {
-    renderEmptyBlock(recentTasks, "还没有历史任务", "在上面的输入框里发出第一条任务后，这里会自动记录时间、状态和回复摘要。");
+    recentVideos.innerHTML = `
+      <div class="mini-item empty">
+        <div class="mini-title">还没有新视频</div>
+        <div class="mini-meta">等工作流跑完后，这里会更新最近输出。</div>
+      </div>
+    `;
     return;
   }
 
-  recentTasks.innerHTML = items
+  recentVideos.innerHTML = items
+    .slice(0, 4)
     .map(
       (item) => `
-        <article class="task-item ${item.ok ? "task-ok" : "task-warn"}">
-          <div class="task-head">
-            <p class="task-time">${escapeHtml(item.ended_at || item.created_at || "")}</p>
-            <span class="task-badge">${escapeHtml(item.status_label || (item.ok ? "已完成" : "失败"))}</span>
-          </div>
-          <p class="task-message">${escapeHtml(item.message || "")}</p>
-          <p class="task-summary">${escapeHtml(item.summary || "暂无摘要")}</p>
-          ${item.reply_text ? `<pre class="task-reply-preview">${escapeHtml(summarizeForUi(item.reply_text, 340))}</pre>` : ""}
-          <div class="task-actions">
-            <button class="mini-button" type="button" data-fill-task="${encodeURIComponent(item.message || "")}">回填到输入框</button>
-            <button class="mini-button ghost-mini" type="button" data-rerun-task="${encodeURIComponent(item.message || "")}">立即重发</button>
-            ${
-              item.reply_text
-                ? `<button class="mini-button ghost-mini" type="button" data-show-reply="${encodeURIComponent(item.id || "")}">查看完整回复</button>`
-                : ""
-            }
-          </div>
+        <article class="mini-item">
+          <div class="mini-title">${escapeHtml(item.name)}</div>
+          <div class="mini-meta">${escapeHtml(item.modified)} · ${escapeHtml(item.size_mb)} MB</div>
         </article>
       `,
     )
     .join("");
+}
 
-  for (const button of recentTasks.querySelectorAll("[data-fill-task]")) {
+function renderTaskGlance(tasks) {
+  if (!tasks.length) {
+    taskGlance.innerHTML = `
+      <div class="mini-item empty">
+        <div class="mini-title">还没有会话记录</div>
+        <div class="mini-meta">右侧发出第一条任务后，这里会显示最近几条摘要。</div>
+      </div>
+    `;
+    return;
+  }
+
+  taskGlance.innerHTML = [...tasks]
+    .slice(-4)
+    .reverse()
+    .map(
+      (task) => `
+        <article class="mini-item">
+          <div class="mini-row">
+            <div class="mini-title">${escapeHtml(summarizeText(task.message, 40))}</div>
+            <span class="mini-pill tone-${taskTone(task)}">${escapeHtml(task.status_label)}</span>
+          </div>
+          <div class="mini-meta">${escapeHtml(task.ended_at || task.created_at || "")}</div>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function buildAssistantBody(task) {
+  if (task.status === "failed") {
+    return task.summary || "任务失败了，但没有拿到更详细的信息。";
+  }
+  if (task.status === "queued" || task.status === "running") {
+    return `${task.stage || "OpenClaw 正在思考中。"} 已运行 ${formatSeconds(task.elapsed_seconds)}。`;
+  }
+  return task.reply_text || task.summary || "任务完成了，但没有捕获到回复正文。";
+}
+
+function renderConversation(tasks) {
+  if (!tasks.length) {
+    conversationFeed.innerHTML = `
+      <article class="message-row assistant">
+        <div class="message-avatar">OC</div>
+        <div class="message-card">
+          <div class="message-meta">
+            <span class="speaker">OpenClaw</span>
+            <span class="message-time">准备就绪</span>
+          </div>
+          <p class="message-text">直接在底部输入框里说你想让它做什么。发出任务后，这里会像聊天一样显示提问、处理中和最终回复。</p>
+        </div>
+      </article>
+    `;
+    return;
+  }
+
+  const rows = [];
+  for (const task of tasks) {
+    rows.push(`
+      <article class="message-row user">
+        <div class="message-avatar">你</div>
+        <div class="message-card user-card">
+          <div class="message-meta">
+            <span class="speaker">你</span>
+            <span class="message-time">${escapeHtml(task.created_at || "刚刚")}</span>
+          </div>
+          <p class="message-text">${escapeHtml(task.message || "")}</p>
+          <div class="message-tools">
+            <button class="tiny-button" type="button" data-fill-task="${encodeURIComponent(task.message || "")}">放回输入框</button>
+            <button class="tiny-button ghost" type="button" data-rerun-task="${encodeURIComponent(task.message || "")}">重发这条</button>
+          </div>
+        </div>
+      </article>
+    `);
+
+    rows.push(`
+      <article class="message-row assistant">
+        <div class="message-avatar">OC</div>
+        <div class="message-card assistant-card tone-${taskTone(task)}">
+          <div class="message-meta">
+            <span class="speaker">OpenClaw</span>
+            <span class="message-time">${escapeHtml(task.ended_at || task.created_at || "处理中")}</span>
+          </div>
+          <div class="assistant-head">
+            <span class="message-pill tone-${taskTone(task)}">${escapeHtml(task.status_label)}</span>
+            <span class="assistant-stage">${escapeHtml(task.stage || "")}</span>
+          </div>
+          ${
+            task.status === "queued" || task.status === "running"
+              ? `
+                <div class="thinking-block">
+                  <span class="thinking-dot"></span>
+                  <span class="thinking-dot"></span>
+                  <span class="thinking-dot"></span>
+                </div>
+              `
+              : ""
+          }
+          <p class="message-text">${escapeHtml(buildAssistantBody(task))}</p>
+        </div>
+      </article>
+    `);
+  }
+
+  conversationFeed.innerHTML = rows.join("");
+
+  for (const button of conversationFeed.querySelectorAll("[data-fill-task]")) {
     button.addEventListener("click", () => {
       agentMessage.value = decodeURIComponent(button.dataset.fillTask || "");
       agentMessage.focus();
-      agentMessage.scrollIntoView({ behavior: "smooth", block: "center" });
     });
   }
 
-  for (const button of recentTasks.querySelectorAll("[data-rerun-task]")) {
+  for (const button of conversationFeed.querySelectorAll("[data-rerun-task]")) {
     button.addEventListener("click", async () => {
       const message = decodeURIComponent(button.dataset.rerunTask || "");
       await sendAgentMessage(message);
     });
   }
 
-  for (const button of recentTasks.querySelectorAll("[data-show-reply]")) {
-    button.addEventListener("click", () => {
-      const taskId = decodeURIComponent(button.dataset.showReply || "");
-      const selected = items.find((item) => item.id === taskId);
-      if (selected) {
-        renderLatestReply(selected);
-        setOutput("历史任务回复", { task: selected });
-        latestReply.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    });
-  }
+  conversationFeed.scrollTop = conversationFeed.scrollHeight;
 }
 
-function renderVideos(items) {
-  if (!items?.length) {
-    renderEmptyBlock(recentVideos, "暂时还没有视频输出", "先跑工作流，生成完成后再刷新这里。");
+function renderLiveStatus(task) {
+  if (!task || !task.id) {
+    liveStatus.innerHTML = `
+      <div class="live-strip idle">
+        <span class="live-label">等待任务</span>
+        <span class="live-copy">右下角发出一条消息后，这里会显示实时状态。</span>
+      </div>
+    `;
     return;
   }
 
-  recentVideos.innerHTML = items
-    .map(
-      (item) => `
-        <div class="video-item">
-          <div class="video-name">${escapeHtml(item.name)}</div>
-          <div class="video-meta">${escapeHtml(item.modified)} | ${escapeHtml(item.size_mb)} MB</div>
-          <div class="video-meta">${escapeHtml(item.path)}</div>
-        </div>
-      `,
-    )
-    .join("");
+  liveStatus.innerHTML = `
+    <div class="live-strip tone-${taskTone(task)}">
+      <span class="live-label">${escapeHtml(task.status_label)}</span>
+      <span class="live-copy">任务 ${escapeHtml(task.id)} · ${escapeHtml(task.stage || "等待状态更新")} · ${escapeHtml(formatSeconds(task.elapsed_seconds))}</span>
+    </div>
+  `;
 }
 
 function renderCommands(items) {
@@ -394,10 +486,8 @@ function renderCommands(items) {
     .map(
       (item) => `
         <div class="command-item">
-          <div class="command-row">
-            <div class="command-text">${escapeHtml(item)}</div>
-            <button class="mini-button" data-copy="${escapeHtml(item)}">复制</button>
-          </div>
+          <div class="command-text">${escapeHtml(item)}</div>
+          <button class="tiny-button ghost" type="button" data-copy="${escapeHtml(item)}">复制</button>
         </div>
       `,
     )
@@ -415,17 +505,31 @@ function renderCommands(items) {
 }
 
 function updateAgentStatusLine(task) {
-  if (!task) {
-    agentStatusLine.textContent = "建议把“做什么、读哪里、输出什么”写清楚。提交后会立刻显示“已提交 / 运行中 / 已完成”。";
+  if (!task || !task.id) {
+    agentStatusLine.textContent = "提交后会像聊天一样显示“你发了什么”和“OpenClaw 回了什么”。";
     return;
   }
 
-  const bits = [
-    `任务 ${task.id}`,
-    `${task.status_label || task.status}`,
-    task.stage || "",
-  ].filter(Boolean);
-  agentStatusLine.textContent = bits.join(" | ");
+  agentStatusLine.textContent = `任务 ${task.id} · ${task.status_label} · ${task.stage || "等待状态更新"}`;
+}
+
+function renderAll(data, options = {}) {
+  const preserveOutput = Boolean(options.preserveOutput);
+  const timelineTasks = getTimelineTasks(data);
+  const currentTask = getCurrentTask(data);
+
+  renderHero(data);
+  renderStatusCards(data);
+  renderVideos(data.recent_videos || []);
+  renderTaskGlance(timelineTasks);
+  renderConversation(timelineTasks);
+  renderLiveStatus(currentTask);
+  renderCommands(data.commands || []);
+  updateAgentStatusLine(currentTask);
+
+  if (!preserveOutput) {
+    setOutput("状态总览", data);
+  }
 }
 
 function clearPollTimer() {
@@ -447,22 +551,30 @@ async function pollTask(taskId) {
 
   try {
     const payload = await fetchTask(taskId);
-    const task = payload.task;
+    const task = normalizeTask(payload.task, taskId);
+    appState.optimisticTask = task;
     appState.watchedTaskId = task.id;
-    renderCurrentTask(task);
-    updateAgentStatusLine(task);
+
+    if (appState.latestStatus) {
+      const merged = {
+        ...appState.latestStatus,
+        active_tasks: isTerminalTask(task) ? [] : [task],
+        latest_reply_task: isTerminalTask(task) ? task : appState.latestStatus.latest_reply_task,
+      };
+      renderAll(merged, { preserveOutput: true });
+    }
+
+    setOutput(isTerminalTask(task) ? "Agent 回复" : "任务进行中", { task });
 
     if (isTerminalTask(task)) {
-      renderLatestReply(task);
-      setOutput("Agent 回复", { task });
-      await refresh({ preserveOutput: true });
-      clearPollTimer();
+      appState.optimisticTask = task;
       appState.watchedTaskId = null;
+      clearPollTimer();
+      await refresh({ preserveOutput: true });
       return;
     }
 
-    setOutput("任务进行中", { task });
-    scheduleTaskPoll(taskId);
+    scheduleTaskPoll(task.id);
   } catch (error) {
     setOutput("任务轮询失败", String(error));
     clearPollTimer();
@@ -477,31 +589,21 @@ async function refresh(options = {}) {
   try {
     const data = await fetchStatus();
     appState.latestStatus = data;
-    renderHero(data);
-    renderStatuses(data);
-    renderTasks(data.recent_tasks);
-    renderVideos(data.recent_videos);
-    renderCommands(data.commands);
 
-    const active = data.active_tasks?.find((item) => item.id === appState.watchedTaskId) || data.active_tasks?.[0] || null;
-    const currentDisplayTask = active || data.latest_reply_task || null;
-    renderCurrentTask(currentDisplayTask);
-    renderLatestReply(data.latest_reply_task);
-    updateAgentStatusLine(currentDisplayTask);
-
-    if (active && !isTerminalTask(active)) {
-      appState.watchedTaskId = active.id;
-      scheduleTaskPoll(active.id, 1000);
+    if (data.active_tasks?.length) {
+      const activeTask = data.active_tasks.find((item) => item.id === appState.watchedTaskId) || data.active_tasks[0];
+      appState.watchedTaskId = activeTask?.id || null;
+      scheduleTaskPoll(appState.watchedTaskId, 1200);
+    } else {
+      clearPollTimer();
     }
 
-    if (!preserveOutput) {
-      setOutput("状态总览", data);
-    }
+    renderAll(data, { preserveOutput });
   } catch (error) {
     setOutput("状态加载失败", String(error));
   } finally {
     refreshButton.disabled = false;
-    refreshButton.textContent = "刷新状态";
+    refreshButton.textContent = "刷新";
   }
 }
 
@@ -528,7 +630,7 @@ async function sendAgentMessage(message) {
   }
 
   agentSubmit.disabled = true;
-  agentSubmit.textContent = "任务已提交...";
+  agentSubmit.textContent = "发送中...";
   setOutput("任务提交中", { message: text });
 
   try {
@@ -536,24 +638,38 @@ async function sendAgentMessage(message) {
       method: "POST",
       body: JSON.stringify({ message: text }),
     });
-    const task = payload.task;
+    const task = normalizeTask(payload.task, `pending-${Date.now()}`);
+    appState.optimisticTask = task;
     appState.watchedTaskId = task.id;
-    renderCurrentTask(task);
-    updateAgentStatusLine(task);
+
+    if (appState.latestStatus) {
+      const snapshot = {
+        ...appState.latestStatus,
+        active_tasks: [task, ...(appState.latestStatus.active_tasks || [])],
+      };
+      renderAll(snapshot, { preserveOutput: true });
+    }
+
     setOutput("任务已提交", { task });
-    await refresh({ preserveOutput: true });
-    scheduleTaskPoll(task.id, 900);
     agentSubmit.disabled = false;
-    agentSubmit.textContent = "发送到 video-agent-system";
+    agentSubmit.textContent = "发送任务";
+    scheduleTaskPoll(task.id, 900);
   } catch (error) {
     agentSubmit.disabled = false;
-    agentSubmit.textContent = "发送到 video-agent-system";
+    agentSubmit.textContent = "发送任务";
     setOutput("任务提交失败", String(error));
   }
 }
 
 for (const button of document.querySelectorAll(".action")) {
   button.addEventListener("click", () => runAction(button.dataset.action));
+}
+
+for (const chip of document.querySelectorAll("[data-template]")) {
+  chip.addEventListener("click", () => {
+    agentMessage.value = chip.dataset.template || "";
+    agentMessage.focus();
+  });
 }
 
 dashboardButton.addEventListener("click", async () => {
@@ -566,17 +682,17 @@ dashboardButton.addEventListener("click", async () => {
 
 copyDashboardButton.addEventListener("click", async () => {
   if (copyDashboardButton.disabled) {
-    setOutput("复制带令牌链接", "当前网关未运行，暂时不建议同步 Dashboard 链接。");
+    setOutput("复制令牌链接", "当前网关未运行，暂时不建议同步 Dashboard 链接。");
     return;
   }
   await runAction("copy_dashboard_url");
 });
 
+refreshButton.addEventListener("click", () => refresh());
+
 agentForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   await sendAgentMessage(agentMessage.value);
 });
-
-refreshButton.addEventListener("click", () => refresh());
 
 refresh();

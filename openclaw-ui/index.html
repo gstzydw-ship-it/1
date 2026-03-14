@@ -3,141 +3,111 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>OpenClaw 视频任务中心</title>
+    <title>OpenClaw 对话台</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
     <div class="backdrop"></div>
-    <main class="shell">
-      <header class="hero panel">
-        <div class="hero-main">
-          <p class="eyebrow">本地 OpenClaw / 视频工作流</p>
-          <h1>视频任务中心</h1>
-          <p class="lede">
-            这里是稳定的主入口。发任务、看它有没有开始跑、等待最终回复、回看最近视频，都在这一页完成。
-          </p>
-          <div class="badge-row" id="hero-badges"></div>
-          <p class="hero-note" id="hero-note">正在读取本地状态...</p>
-          <div class="notice-banner">
-            <strong>防混淆提示：</strong>
-            如果你看到“聊天 / Main Session / disconnected (1006)”那是官方 Dashboard，不是这里这个本地任务中心。
-          </div>
+    <main class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-top">
+          <section class="brand-panel">
+            <p class="eyebrow">本地 OpenClaw / 视频工作流</p>
+            <h1>OpenClaw 对话台</h1>
+            <p class="brand-copy" id="hero-note">正在读取本地状态...</p>
+            <div class="badge-row" id="hero-badges"></div>
+          </section>
+
+          <section class="sidebar-section">
+            <div class="section-head">
+              <p class="section-kicker">状态总览</p>
+              <h2>工作区与连接</h2>
+            </div>
+            <div id="status-grid" class="status-stack"></div>
+            <p class="sidebar-note" id="dashboard-hint">官方 Dashboard 只作为辅助入口。</p>
+          </section>
+
+          <section class="sidebar-section">
+            <div class="section-head">
+              <p class="section-kicker">快捷动作</p>
+              <h2>检查与修复</h2>
+            </div>
+            <div class="action-grid">
+              <button class="button tile action" data-action="doctor" type="button">项目体检</button>
+              <button class="button tile action" data-action="test_asset_planner" type="button">测试素材规划</button>
+              <button class="button tile action" data-action="test_prompt_composer" type="button">测试提示词组装</button>
+              <button class="button tile action" data-action="open_outputs" type="button">打开输出目录</button>
+              <button class="button tile action" data-action="copy_dashboard_url" type="button">复制令牌链接</button>
+              <button class="button tile action" data-action="openclaw_status" type="button">查看 OpenClaw 状态</button>
+            </div>
+          </section>
+
+          <section class="sidebar-section">
+            <div class="section-head">
+              <p class="section-kicker">最近视频</p>
+              <h2>输出概览</h2>
+            </div>
+            <div id="recent-videos" class="mini-list"></div>
+          </section>
+
+          <section class="sidebar-section">
+            <div class="section-head">
+              <p class="section-kicker">任务速览</p>
+              <h2>最近几条</h2>
+            </div>
+            <div id="task-glance" class="mini-list"></div>
+          </section>
         </div>
-        <div class="hero-side">
-          <button class="button primary action" data-action="openclaw_status" type="button">查看 OpenClaw 状态</button>
-          <button class="button ghost" id="refresh-button" type="button">刷新状态</button>
-          <button class="button subtle" id="copy-dashboard-button" type="button">复制带令牌链接</button>
-          <button class="button subtle" id="dashboard-button" type="button">辅助打开官方 Dashboard</button>
-          <p class="hero-side-note" id="dashboard-hint">
-            官方 Dashboard 只作为辅助入口。真正稳定的发任务路径，是下面这个本地任务中心。
-          </p>
-        </div>
-      </header>
 
-      <section class="status-grid" id="status-grid"></section>
-
-      <section class="top-grid">
-        <article class="panel guide-panel">
-          <div class="panel-head">
-            <p class="panel-kicker">使用逻辑</p>
-            <h2>建议这样用</h2>
-          </div>
-          <ol class="step-list">
-            <li>先刷新状态，确认网关、Agent 和工作区都正常。</li>
-            <li>在“发布任务”里直接写中文要求，提交后页面会立刻显示任务编号和运行状态。</li>
-            <li>任务跑起来以后，看“当前任务”区，不用再猜它有没有执行。</li>
-            <li>任务结束后，“最新回复”会直接显示最终答复，下面的“最近任务”也会同步记录。</li>
-          </ol>
-          <div class="tip-block">
-            <p class="tip-title">为什么要这样改</p>
-            <p>之前是同步等待，体感像“点了没反应”。现在改成后台执行，你一提交就能看到状态变化和最终回话。</p>
-          </div>
-        </article>
-
-        <article class="panel actions-panel">
-          <div class="panel-head">
-            <p class="panel-kicker">快捷操作</p>
-            <h2>检查、修复和常用动作</h2>
-          </div>
-          <div class="action-grid">
-            <button class="button tile action" data-action="doctor" type="button">项目体检</button>
-            <button class="button tile action" data-action="test_asset_planner" type="button">测试素材规划</button>
-            <button class="button tile action" data-action="test_prompt_composer" type="button">测试提示词组装</button>
-            <button class="button tile action" data-action="open_outputs" type="button">打开视频输出目录</button>
-            <button class="button tile action" data-action="copy_dashboard_url" type="button">复制 Dashboard 令牌链接</button>
-            <button class="button tile action" data-action="open_dashboard" type="button">辅助打开官方 Dashboard</button>
-          </div>
-        </article>
-      </section>
-
-      <section class="panel agent-panel">
-        <div class="panel-head">
-          <p class="panel-kicker">发布任务</p>
-          <h2>给 OpenClaw 下发任务</h2>
-        </div>
-        <form id="agent-form" class="agent-form">
-          <label for="agent-message">任务描述</label>
-          <textarea id="agent-message" rows="6">检查当前即梦工作流，并总结主要入口、输出路径、最近生成的视频以及下一步建议。</textarea>
-          <div class="agent-footer">
-            <p class="agent-help" id="agent-status-line">
-              建议把“做什么、读哪里、输出什么”写清楚。提交后会立刻显示“已提交 / 运行中 / 已完成”。
-            </p>
-            <button class="button primary" id="agent-submit" type="submit">发送到 video-agent-system</button>
-          </div>
-        </form>
-      </section>
-
-      <section class="workflow-grid">
-        <article class="panel live-panel">
-          <div class="panel-head">
-            <p class="panel-kicker">当前任务</p>
-            <h2>现在跑到哪一步了</h2>
-          </div>
-          <div id="current-task" class="current-task"></div>
-        </article>
-
-        <article class="panel reply-panel">
-          <div class="panel-head">
-            <p class="panel-kicker">最新回复</p>
-            <h2>任务完成后直接看这里</h2>
-          </div>
-          <div id="latest-reply" class="reply-box"></div>
-        </article>
-      </section>
-
-      <section class="panel task-panel">
-        <div class="panel-head">
-          <p class="panel-kicker">最近任务</p>
-          <h2>历史任务与快速复用</h2>
-        </div>
-        <div id="recent-tasks" class="task-list"></div>
-      </section>
-
-      <section class="bottom-grid">
-        <article class="panel">
-          <div class="panel-head">
-            <p class="panel-kicker">最近输出</p>
-            <h2>最近视频</h2>
-          </div>
-          <div id="recent-videos" class="video-list"></div>
-        </article>
-
-        <article class="panel">
-          <div class="panel-head">
-            <p class="panel-kicker">命令区</p>
-            <h2>可直接运行的命令</h2>
-          </div>
+        <details class="debug-panel">
+          <summary>展开调试面板</summary>
           <div id="command-list" class="command-list"></div>
-        </article>
-      </section>
+          <pre id="output-log">控制台已就绪。先刷新状态，或者直接发布一个任务。</pre>
+        </details>
+      </aside>
 
-      <section class="panel output-panel">
-        <div class="panel-head">
-          <p class="panel-kicker">运行日志</p>
-          <h2>结果与回执</h2>
+      <section class="chat-shell">
+        <header class="chat-header">
+          <div class="chat-title">
+            <p class="eyebrow">当前会话</p>
+            <h2>video-agent-system</h2>
+            <p class="chat-subtitle">像官方聊天页一样发任务，但把运行状态和最终回复一起留在对话里。</p>
+          </div>
+          <div class="header-actions">
+            <button class="button ghost" id="refresh-button" type="button">刷新</button>
+            <button class="button subtle" id="copy-dashboard-button" type="button">复制令牌链接</button>
+            <button class="button subtle" id="dashboard-button" type="button">打开官方页</button>
+          </div>
+        </header>
+
+        <div class="notice-strip">
+          <strong>防混淆提示</strong>
+          <span>如果你看到“聊天 / Main Session / disconnected (1006)”那是官方 Dashboard，不是这里这个本地对话台。</span>
         </div>
-        <pre id="output-log">控制台已就绪。先刷新状态，或者直接发布一个任务。</pre>
+
+        <section class="conversation-stage">
+          <div id="conversation-feed" class="conversation-feed"></div>
+        </section>
+
+        <div id="live-status" class="live-status"></div>
+
+        <section class="composer-panel">
+          <div class="chip-row">
+            <button class="prompt-chip" type="button" data-template="检查当前即梦工作流，并总结主要入口、输出路径、最近生成的视频以及下一步建议。">检查工作流</button>
+            <button class="prompt-chip" type="button" data-template="读取 D:\\agent\\video-agent-system\\tmp\\episode7_shot_plan.json，帮我判断这份分镜是否能直接跑。">检查分镜</button>
+            <button class="prompt-chip" type="button" data-template="帮我检查 OpenClaw、本地工作区和最近任务状态，给一个简短结论。">检查环境</button>
+          </div>
+
+          <form id="agent-form" class="composer-form">
+            <label class="sr-only" for="agent-message">任务描述</label>
+            <textarea id="agent-message" rows="4">检查当前即梦工作流，并总结主要入口、输出路径、最近生成的视频以及下一步建议。</textarea>
+            <div class="composer-footer">
+              <p id="agent-status-line" class="agent-status-line">提交后会像聊天一样显示“你发了什么”和“OpenClaw 回了什么”。</p>
+              <button class="button primary" id="agent-submit" type="submit">发送任务</button>
+            </div>
+          </form>
+        </section>
       </section>
     </main>
 
