@@ -1,6 +1,7 @@
 const heroBadges = document.querySelector("#hero-badges");
 const heroNote = document.querySelector("#hero-note");
 const statusGrid = document.querySelector("#status-grid");
+const recentTasks = document.querySelector("#recent-tasks");
 const recentVideos = document.querySelector("#recent-videos");
 const commandList = document.querySelector("#command-list");
 const outputLog = document.querySelector("#output-log");
@@ -48,7 +49,7 @@ function formatLogPayload(payload) {
     if (payload.command?.length) {
       sections.push(`执行命令：\n${payload.command.join(" ")}`);
     }
-    if (payload.stderr?.trim()) {
+    if (!payload.ok && payload.stderr?.trim()) {
       sections.push(`附加信息：\n${payload.stderr.trim()}`);
     }
     return sections.join("\n\n");
@@ -58,13 +59,13 @@ function formatLogPayload(payload) {
   if (payload?.action === "open_dashboard") {
     sections.push(
       payload.ok
-        ? "已尝试在默认浏览器中用当前令牌打开官方 Dashboard，并把链接复制到了剪贴板。"
-        : "官方 Dashboard 打开失败。先点“复制带令牌链接”，再用新的链接重开页面。",
+        ? "已尝试用当前令牌打开官方 Dashboard，并把链接同步到了剪贴板。"
+        : "官方 Dashboard 打开失败。先点“复制带令牌链接”，再用新链接重开页面。",
     );
   } else if (payload?.action === "copy_dashboard_url") {
     sections.push(
       payload.ok
-        ? "已复制带当前令牌的 Dashboard 链接。若页面提示 token mismatch，请用这条新链接重新打开。"
+        ? "已复制带当前令牌的 Dashboard 链接。若官方页报 token missing 或 token mismatch，请用这条新链接重新打开。"
         : "复制 Dashboard 链接失败，请先检查 OpenClaw 状态。",
     );
   } else if (payload?.action === "open_outputs") {
@@ -107,7 +108,7 @@ function renderHero(data) {
     { label: "OpenClaw", value: data.openclaw.installed ? data.openclaw.version : "未安装" },
     { label: "Agent", value: data.openclaw.agent_id },
     { label: "网关", value: data.openclaw.gateway_running ? "运行中" : "未运行" },
-    { label: "Dashboard", value: data.openclaw.dashboard_direct_accessible ? "可直连" : "需重连" },
+    { label: "主入口", value: "本地任务中心" },
   ];
 
   heroBadges.innerHTML = badges
@@ -124,25 +125,15 @@ function renderHero(data) {
   if (data.openclaw.gateway_running) {
     dashboardButton.disabled = false;
     copyDashboardButton.disabled = false;
-
-    if (data.openclaw.dashboard_direct_accessible) {
-      dashboardButton.textContent = "打开官方 Dashboard";
-      dashboardHint.textContent = "如果页面仍提示 token mismatch，先点“复制带令牌链接”，再用新链接重新进入。";
-      heroNote.textContent = "OpenClaw 网关正常运行。日常操作优先用这个本地控制台，官方 Dashboard 主要用于补充查看。";
-      return;
-    }
-
-    dashboardButton.textContent = "重新打开官方 Dashboard";
-    dashboardHint.textContent = "当前 Windows 侧直连检测不稳定，但你仍可以重开页面；如果报 token mismatch，优先复制带令牌链接。";
-    heroNote.textContent = "这不是你操作错了。现在最稳的修法是复制带令牌链接重新进入，或继续直接用本地控制台。";
+    dashboardHint.textContent = "如果官方 Dashboard 断开或报 token 错误，先复制带令牌链接再重开。真正稳定的发任务入口还是本地任务中心。";
+    heroNote.textContent = "OpenClaw 网关正常运行。你可以直接在下面发任务，历史记录会自动保存。";
     return;
   }
 
   dashboardButton.disabled = true;
   copyDashboardButton.disabled = true;
-  dashboardButton.textContent = "官方 Dashboard 暂不可用";
-  dashboardHint.textContent = "OpenClaw 网关当前没有运行，先刷新状态或检查服务。";
-  heroNote.textContent = "先确认 OpenClaw 网关是否启动，再进行 Agent 调用或 Dashboard 修复。";
+  dashboardHint.textContent = "网关当前未运行，先刷新状态或查看 OpenClaw 状态。";
+  heroNote.textContent = "网关还没起来前，不建议打开官方 Dashboard。先把本地服务状态确认好。";
 }
 
 function renderStatuses(data) {
@@ -157,16 +148,16 @@ function renderStatuses(data) {
     {
       label: "网关进程",
       value: data.openclaw.gateway_running ? "运行中" : "未运行",
-      meta: data.openclaw.gateway_running ? "WSL 内部已监听 OpenClaw 端口" : "请先运行状态检查确认服务",
+      meta: data.openclaw.gateway_running ? "本地任务中心可以直接下发任务" : "请先运行状态检查确认服务",
       tone: data.openclaw.gateway_running ? "ok" : "warn",
     },
     {
-      label: "Dashboard 连接",
-      value: data.openclaw.dashboard_direct_accessible ? "可打开" : "建议重连",
+      label: "官方 Dashboard",
+      value: data.openclaw.dashboard_direct_accessible ? "可直连" : "不稳定",
       meta: data.openclaw.dashboard_direct_accessible
-        ? `${data.openclaw.dashboard_url} | 若提示 token mismatch，可复制带令牌链接重开`
-        : "当前 Windows 侧直连不稳定；如果页面已经打开却报 token mismatch，请复制带令牌链接重新进入。",
-      tone: data.openclaw.gateway_running ? (data.openclaw.dashboard_direct_accessible ? "ok" : "warn") : "warn",
+        ? `${data.openclaw.dashboard_url} | 仍建议优先用本地任务中心`
+        : "这台机器上官方页 websocket 连接不稳定，建议把它当辅助入口。",
+      tone: data.openclaw.dashboard_direct_accessible ? "neutral" : "warn",
     },
     {
       label: "工作区",
@@ -193,6 +184,52 @@ function renderStatuses(data) {
       `,
     )
     .join("");
+}
+
+function renderTasks(items) {
+  if (!items?.length) {
+    recentTasks.innerHTML = `
+      <div class="task-item empty-state">
+        <div class="task-message">还没有历史任务</div>
+        <div class="task-summary">在上面的任务框里发出第一条任务后，这里会自动记录时间、状态和回复摘要。</div>
+      </div>
+    `;
+    return;
+  }
+
+  recentTasks.innerHTML = items
+    .map(
+      (item, index) => `
+        <article class="task-item ${item.ok ? "task-ok" : "task-warn"}">
+          <div class="task-head">
+            <p class="task-time">${escapeHtml(item.created_at || "")}</p>
+            <span class="task-badge">${item.ok ? "成功" : "失败"}</span>
+          </div>
+          <p class="task-message">${escapeHtml(item.message || "")}</p>
+          <p class="task-summary">${escapeHtml(item.summary || "暂无摘要")}</p>
+          <div class="task-actions">
+            <button class="mini-button" type="button" data-fill-task="${encodeURIComponent(item.message || "")}">回填到输入框</button>
+            <button class="mini-button ghost-mini" type="button" data-rerun-task="${encodeURIComponent(item.message || "")}">立即重发</button>
+          </div>
+        </article>
+      `,
+    )
+    .join("");
+
+  for (const button of recentTasks.querySelectorAll("[data-fill-task]")) {
+    button.addEventListener("click", () => {
+      agentMessage.value = decodeURIComponent(button.dataset.fillTask || "");
+      agentMessage.focus();
+      agentMessage.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+
+  for (const button of recentTasks.querySelectorAll("[data-rerun-task]")) {
+    button.addEventListener("click", async () => {
+      const message = decodeURIComponent(button.dataset.rerunTask || "");
+      await sendAgentMessage(message);
+    });
+  }
 }
 
 function renderVideos(items) {
@@ -251,6 +288,7 @@ async function refresh() {
     const data = await fetchStatus();
     renderHero(data);
     renderStatuses(data);
+    renderTasks(data.recent_tasks);
     renderVideos(data.recent_videos);
     renderCommands(data.commands);
     setOutput("状态总览", data);
@@ -277,6 +315,23 @@ async function runAction(action) {
   }
 }
 
+async function sendAgentMessage(message) {
+  const text = (message || "").trim();
+  if (!text) {
+    return;
+  }
+
+  setOutput("Agent 请求", { message: text });
+  const response = await fetch("/api/agent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: text }),
+  });
+  const payload = await response.json();
+  setOutput(actionTitles.agent_prompt, payload);
+  await refresh();
+}
+
 for (const button of document.querySelectorAll(".action")) {
   button.addEventListener("click", () => runAction(button.dataset.action));
 }
@@ -299,18 +354,7 @@ copyDashboardButton.addEventListener("click", async () => {
 
 agentForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const message = agentMessage.value.trim();
-  if (!message) {
-    return;
-  }
-  setOutput("Agent 请求", { message });
-  const response = await fetch("/api/agent", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message }),
-  });
-  const payload = await response.json();
-  setOutput(actionTitles.agent_prompt, payload);
+  await sendAgentMessage(agentMessage.value);
 });
 
 refreshButton.addEventListener("click", refresh);

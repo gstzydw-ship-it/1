@@ -34,6 +34,7 @@ def to_wsl_path(path: Path) -> str:
 ROOT_WSL = to_wsl_path(ROOT)
 OPENCLAW_WSL_SCRIPT = f"{ROOT_WSL}/scripts/openclaw-wsl.sh"
 OPENCLAW_PS1 = ROOT / "scripts" / "openclaw.ps1"
+TASK_HISTORY_PATH = ROOT / "data" / "openclaw_task_history.jsonl"
 
 
 def clean_process_output(text: str) -> str:
@@ -101,6 +102,55 @@ def extract_last_json_blob(text: str) -> Any | None:
         except json.JSONDecodeError:
             continue
     return None
+
+
+def extract_agent_text(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+
+    payloads = payload.get("payloads")
+    if not isinstance(payloads, list):
+        return ""
+
+    texts: list[str] = []
+    for item in payloads:
+        if not isinstance(item, dict):
+            continue
+        text = item.get("text")
+        if isinstance(text, str) and text.strip():
+            texts.append(text.strip())
+    return "\n\n".join(texts)
+
+
+def summarize_text(text: str, *, limit: int = 180) -> str:
+    cleaned = " ".join((text or "").split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return f"{cleaned[: limit - 1].rstrip()}…"
+
+
+def append_task_history(entry: dict[str, Any]) -> None:
+    TASK_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with TASK_HISTORY_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=False))
+        handle.write("\n")
+
+
+def read_task_history(limit: int = 10) -> list[dict[str, Any]]:
+    if not TASK_HISTORY_PATH.exists():
+        return []
+
+    items: list[dict[str, Any]] = []
+    for line in TASK_HISTORY_PATH.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(item, dict):
+            items.append(item)
+    return list(reversed(items[-limit:]))
 
 
 def dashboard_direct_accessible() -> bool:
@@ -240,11 +290,12 @@ def build_status() -> dict[str, Any]:
         "workspace_path": str(ROOT / ".openclaw-workspace"),
         "git": get_git_summary(),
         "openclaw": get_openclaw_summary(),
+        "recent_tasks": read_task_history(),
         "recent_videos": list_recent_videos(),
         "commands": [
             "powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 status",
             "powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 dashboard --no-open",
-            'powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 agent --agent video-agent-system --message "\u68c0\u67e5\u5f53\u524d\u5373\u68a6\u5de5\u4f5c\u6d41" --json',
+            'powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 agent --local --agent video-agent-system --message "\u68c0\u67e5\u5f53\u524d\u5373\u68a6\u5de5\u4f5c\u6d41" --json',
             "powershell -ExecutionPolicy Bypass -File scripts/openclaw-ui.ps1",
             "python -m app.cli doctor",
             "python -m app.cli test-prompt-composer",
@@ -321,10 +372,20 @@ def run_action(name: str) -> dict[str, Any]:
 
 def run_agent_prompt(message: str) -> dict[str, Any]:
     result = run_wsl_openclaw(
-        ["agent", "--agent", AGENT_ID, "--message", message, "--json"],
+        ["agent", "--local", "--agent", AGENT_ID, "--message", message, "--json"],
         timeout=600,
     )
     payload = extract_last_json_blob(result["stdout"])
+    reply_text = extract_agent_text(payload)
+    history_entry = {
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "message": message,
+        "ok": result["ok"],
+        "returncode": result["returncode"],
+        "summary": summarize_text(reply_text or result["stderr"] or result["stdout"] or "No reply captured."),
+        "reply_preview": summarize_text(reply_text, limit=320),
+    }
+    append_task_history(history_entry)
     return {
         "action": "agent_prompt",
         "ok": result["ok"],
