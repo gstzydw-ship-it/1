@@ -195,7 +195,7 @@ def build_status() -> dict[str, Any]:
         "recent_videos": list_recent_videos(),
         "commands": [
             'powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 status',
-            'powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 agent --agent video-agent-system --message "Check the current Jimeng workflow" --json',
+            'powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 agent --agent video-agent-system --message "检查当前即梦工作流" --json',
             'powershell -ExecutionPolicy Bypass -File scripts/openclaw-ui.ps1',
             'python -m app.cli doctor',
             'python -m app.cli test-prompt-composer',
@@ -216,23 +216,23 @@ def action_result(title: str, result: dict[str, Any]) -> dict[str, Any]:
 
 def run_action(name: str) -> dict[str, Any]:
     if name == "doctor":
-        return action_result("Project Doctor", run_process([sys.executable, "-m", "app.cli", "doctor"], cwd=ROOT))
+        return action_result("项目体检", run_process([sys.executable, "-m", "app.cli", "doctor"], cwd=ROOT))
     if name == "test_asset_planner":
         return action_result(
-            "Asset Planner Test",
+            "素材规划测试",
             run_process([sys.executable, "-m", "app.cli", "test-asset-planner"], cwd=ROOT),
         )
     if name == "test_prompt_composer":
         return action_result(
-            "Prompt Composer Test",
+            "提示词组装测试",
             run_process([sys.executable, "-m", "app.cli", "test-prompt-composer"], cwd=ROOT),
         )
     if name == "openclaw_status":
-        return action_result("OpenClaw Status", run_wsl_openclaw(["status"], timeout=120))
+        return action_result("OpenClaw 状态", run_wsl_openclaw(["status"], timeout=120))
     if name == "open_outputs":
         subprocess.Popen(["explorer.exe", str(ROOT / "outputs" / "videos")])
         return {
-            "title": "Open Outputs",
+            "title": "打开视频输出目录",
             "ok": True,
             "returncode": 0,
             "stdout": str(ROOT / "outputs" / "videos"),
@@ -249,7 +249,7 @@ def run_agent_prompt(message: str) -> dict[str, Any]:
     )
     payload = extract_last_json_blob(result["stdout"])
     return {
-        "title": "OpenClaw Agent Reply",
+        "title": "OpenClaw Agent 回复",
         "ok": result["ok"],
         "returncode": result["returncode"],
         "stdout": result["stdout"],
@@ -291,23 +291,23 @@ class ControlHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/action":
                 action = str(payload.get("action") or "").strip()
                 if not action:
-                    self._send_json({"ok": False, "error": "Missing action."}, status=HTTPStatus.BAD_REQUEST)
+                    self._send_json({"ok": False, "error": "缺少 action 参数。"}, status=HTTPStatus.BAD_REQUEST)
                     return
                 try:
                     self._send_json(run_action(action))
                 except KeyError:
-                    self._send_json({"ok": False, "error": f"Unknown action: {action}"}, status=HTTPStatus.BAD_REQUEST)
+                    self._send_json({"ok": False, "error": f"未知操作：{action}"}, status=HTTPStatus.BAD_REQUEST)
                 return
 
             if parsed.path == "/api/agent":
                 message = str(payload.get("message") or "").strip()
                 if not message:
-                    self._send_json({"ok": False, "error": "Message is required."}, status=HTTPStatus.BAD_REQUEST)
+                    self._send_json({"ok": False, "error": "消息不能为空。"}, status=HTTPStatus.BAD_REQUEST)
                     return
                 self._send_json(run_agent_prompt(message))
                 return
 
-            self._send_json({"ok": False, "error": "Not found."}, status=HTTPStatus.NOT_FOUND)
+            self._send_json({"ok": False, "error": "接口不存在。"}, status=HTTPStatus.NOT_FOUND)
         except Exception as exc:  # noqa: BLE001
             self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
@@ -324,14 +324,14 @@ class ControlHandler(SimpleHTTPRequestHandler):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Serve the local OpenClaw control UI.")
+    parser = argparse.ArgumentParser(description="启动本地 OpenClaw 控制台。")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--open-browser", action="store_true")
     args = parser.parse_args()
 
     server = ThreadingHTTPServer(("127.0.0.1", args.port), ControlHandler)
     url = f"http://127.0.0.1:{args.port}/"
-    print(f"OpenClaw control UI ready at {url}")
+    print(f"OpenClaw 本地控制台已启动：{url}")
 
     if args.open_browser:
         time.sleep(0.3)

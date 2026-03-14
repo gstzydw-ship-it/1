@@ -34,23 +34,23 @@ function renderStatuses(data) {
   const cards = [
     {
       label: "OpenClaw",
-      value: data.openclaw.installed ? data.openclaw.version : "missing",
-      meta: data.openclaw.installed ? `Agent: ${data.openclaw.agent_id}` : "WSL install not ready",
+      value: data.openclaw.installed ? data.openclaw.version : "未安装",
+      meta: data.openclaw.installed ? `Agent：${data.openclaw.agent_id}` : "WSL 中的 OpenClaw 尚未就绪",
     },
     {
-      label: "Gateway",
-      value: data.openclaw.gateway_reachable ? "online" : "offline",
+      label: "网关",
+      value: data.openclaw.gateway_reachable ? "在线" : "离线",
       meta: data.openclaw.dashboard_url,
     },
     {
-      label: "Workspace",
+      label: "工作区",
       value: ".openclaw-workspace",
       meta: data.workspace_path,
     },
     {
       label: "Git",
       value: data.git.branch,
-      meta: `Backup: ${data.git.backup_branch} | Dirty files: ${dirtyCount}`,
+      meta: `备份分支：${data.git.backup_branch} | 未提交文件：${dirtyCount}`,
     },
   ];
 
@@ -71,8 +71,8 @@ function renderVideos(items) {
   if (!items.length) {
     recentVideos.innerHTML = `
       <div class="video-item">
-        <div class="video-name">No recent videos yet</div>
-        <div class="video-meta">Run the pipeline and refresh.</div>
+        <div class="video-name">暂时还没有视频输出</div>
+        <div class="video-meta">先跑工作流，再回来刷新这里。</div>
       </div>
     `;
     return;
@@ -98,7 +98,7 @@ function renderCommands(items) {
         <div class="command-item">
           <div class="command-row">
             <div class="command-text">${escapeHtml(item)}</div>
-            <button class="mini-button" data-copy="${escapeHtml(item)}">Copy</button>
+            <button class="mini-button" data-copy="${escapeHtml(item)}">复制</button>
           </div>
         </div>
       `,
@@ -108,9 +108,9 @@ function renderCommands(items) {
   for (const button of commandList.querySelectorAll("[data-copy]")) {
     button.addEventListener("click", async () => {
       await navigator.clipboard.writeText(button.dataset.copy);
-      button.textContent = "Copied";
+      button.textContent = "已复制";
       window.setTimeout(() => {
-        button.textContent = "Copy";
+        button.textContent = "复制";
       }, 1200);
     });
   }
@@ -118,24 +118,24 @@ function renderCommands(items) {
 
 async function refresh() {
   refreshButton.disabled = true;
-  refreshButton.textContent = "Refreshing...";
+  refreshButton.textContent = "刷新中...";
   try {
     const data = await fetchStatus();
     dashboardLink.href = data.openclaw.dashboard_url;
     renderStatuses(data);
     renderVideos(data.recent_videos);
     renderCommands(data.commands);
-    setOutput("STATUS", data);
+    setOutput("状态", data);
   } catch (error) {
-    setOutput("STATUS ERROR", String(error));
+    setOutput("状态加载失败", String(error));
   } finally {
     refreshButton.disabled = false;
-    refreshButton.textContent = "Refresh Status";
+    refreshButton.textContent = "刷新状态";
   }
 }
 
 async function runAction(action) {
-  setOutput("RUNNING", { action });
+  setOutput("正在执行", { action });
   const response = await fetch("/api/action", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -155,14 +155,14 @@ agentForm.addEventListener("submit", async (event) => {
   if (!message) {
     return;
   }
-  setOutput("AGENT REQUEST", { message });
+  setOutput("Agent 请求", { message });
   const response = await fetch("/api/agent", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message }),
   });
   const payload = await response.json();
-  setOutput(payload.title || "Agent Reply", payload);
+  setOutput(payload.title || "Agent 回复", payload);
 });
 
 refreshButton.addEventListener("click", refresh);

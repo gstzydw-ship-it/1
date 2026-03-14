@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>OpenClaw Video Control Room</title>
+    <title>OpenClaw 视频控制台</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles.css">
   </head>
@@ -12,16 +12,16 @@
     <main class="shell">
       <section class="hero">
         <div class="hero-copy">
-          <p class="eyebrow">LOCAL OPENCLAW / VIDEO AGENT</p>
-          <h1>Video Agent Control Room</h1>
+          <p class="eyebrow">本地 OPENCLAW / 视频工作流</p>
+          <h1>视频工作流控制台</h1>
           <p class="lede">
-            Keep the OpenClaw gateway, project health checks, recent renders, and the
-            dedicated <code>video-agent-system</code> agent in one calm surface.
+            把 OpenClaw 网关、项目体检、最近生成结果，以及专用的
+            <code>video-agent-system</code> agent 放到同一个本地面板里。
           </p>
         </div>
         <div class="hero-actions">
-          <a class="button primary" id="dashboard-link" href="http://127.0.0.1:18789/" target="_blank" rel="noreferrer">Open OpenClaw Dashboard</a>
-          <button class="button ghost" id="refresh-button" type="button">Refresh Status</button>
+          <a class="button primary" id="dashboard-link" href="http://127.0.0.1:18789/" target="_blank" rel="noreferrer">打开 OpenClaw 面板</a>
+          <button class="button ghost" id="refresh-button" type="button">刷新状态</button>
         </div>
       </section>
 
@@ -30,27 +30,27 @@
       <section class="workspace-grid">
         <article class="panel">
           <div class="panel-head">
-            <p class="panel-kicker">AGENT CONSOLE</p>
-            <h2>Send a task to OpenClaw</h2>
+            <p class="panel-kicker">AGENT 控制台</p>
+            <h2>给 OpenClaw 下发任务</h2>
           </div>
           <form id="agent-form" class="agent-form">
-            <label for="agent-message">Message</label>
-            <textarea id="agent-message" rows="6">Inspect the current video workflow and summarize the main entry points, output paths, and useful commands.</textarea>
-            <button class="button primary wide" type="submit">Send to video-agent-system</button>
+            <label for="agent-message">消息</label>
+            <textarea id="agent-message" rows="6">检查当前视频工作流，并总结主要入口、输出路径和常用命令。</textarea>
+            <button class="button primary wide" type="submit">发送到 video-agent-system</button>
           </form>
         </article>
 
         <article class="panel">
           <div class="panel-head">
-            <p class="panel-kicker">QUICK ACTIONS</p>
-            <h2>Local checks</h2>
+            <p class="panel-kicker">快捷操作</p>
+            <h2>本地检查</h2>
           </div>
           <div class="action-grid">
-            <button class="button ghost action" data-action="doctor" type="button">Project Doctor</button>
-            <button class="button ghost action" data-action="test_asset_planner" type="button">Test Asset Planner</button>
-            <button class="button ghost action" data-action="test_prompt_composer" type="button">Test Prompt Composer</button>
-            <button class="button ghost action" data-action="openclaw_status" type="button">Check OpenClaw Status</button>
-            <button class="button ghost action" data-action="open_outputs" type="button">Open Video Output Folder</button>
+            <button class="button ghost action" data-action="doctor" type="button">项目体检</button>
+            <button class="button ghost action" data-action="test_asset_planner" type="button">测试素材规划</button>
+            <button class="button ghost action" data-action="test_prompt_composer" type="button">测试提示词组装</button>
+            <button class="button ghost action" data-action="openclaw_status" type="button">查看 OpenClaw 状态</button>
+            <button class="button ghost action" data-action="open_outputs" type="button">打开视频输出目录</button>
           </div>
         </article>
       </section>
@@ -58,16 +58,16 @@
       <section class="workspace-grid">
         <article class="panel">
           <div class="panel-head">
-            <p class="panel-kicker">RECENT OUTPUTS</p>
-            <h2>Recent videos</h2>
+            <p class="panel-kicker">近期输出</p>
+            <h2>最近视频</h2>
           </div>
           <div id="recent-videos" class="video-list"></div>
         </article>
 
         <article class="panel">
           <div class="panel-head">
-            <p class="panel-kicker">COMMAND DOCK</p>
-            <h2>Ready-to-run commands</h2>
+            <p class="panel-kicker">命令区</p>
+            <h2>可直接运行的命令</h2>
           </div>
           <div id="command-list" class="command-list"></div>
         </article>
@@ -75,10 +75,10 @@
 
       <section class="panel output-panel">
         <div class="panel-head">
-          <p class="panel-kicker">RUN LOG</p>
-          <h2>Console output</h2>
+          <p class="panel-kicker">运行日志</p>
+          <h2>控制台输出</h2>
         </div>
-        <pre id="output-log">Ready. Refresh the status cards or send a prompt to the local OpenClaw agent.</pre>
+        <pre id="output-log">控制台已就绪。你可以先刷新状态，或者直接给本地 OpenClaw agent 发一条消息。</pre>
       </section>
     </main>
 
