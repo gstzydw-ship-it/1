@@ -17,6 +17,13 @@
 powershell -ExecutionPolicy Bypass -File scripts/openclaw-ui.ps1
 ```
 
+默认建议直接使用本地控制台：
+
+- 状态总览看 OpenClaw、网关、工作区和 Git 分支
+- 快捷操作跑项目体检、提示词测试和输出目录
+- Agent 区直接给 `video-agent-system` 发中文任务
+- 最近视频、常用命令和运行日志都在同一页
+
 在 Windows 里通过 WSL 包装器执行 OpenClaw 命令：
 
 ```powershell
@@ -43,4 +50,5 @@ python -m app.cli watch-jimeng-job
 - `scripts/openclaw-wsl.sh` 是 WSL 里的 OpenClaw 主启动脚本。
 - `scripts/openclaw.ps1` 是 Windows 侧调用这个脚本的包装器。
 - `scripts/openclaw_control_server.py` 会把 `openclaw-ui/` 目录作为本地控制台页面提供出来。
+- 官方 Dashboard 地址仍然是 `http://127.0.0.1:18789/`，但在这台机器上有时不能从 Windows 直接打开，所以日常建议优先用本地控制台。
 - 这台机器上如果 gateway websocket 暂时断开，`openclaw agent ...` 可能会自动回退到 embedded 模式，但命令仍然可以正常完成。

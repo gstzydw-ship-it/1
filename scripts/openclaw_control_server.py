@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import shlex
-import socket
 import subprocess
 import sys
 import time
@@ -64,6 +63,7 @@ def run_wsl_openclaw(args: list[str], *, timeout: int = 120) -> dict[str, Any]:
 def extract_last_json_blob(text: str) -> Any | None:
     if not text:
         return None
+
     decoder = json.JSONDecoder()
     for index, char in enumerate(text):
         if char not in "[{":
@@ -76,40 +76,53 @@ def extract_last_json_blob(text: str) -> Any | None:
     return None
 
 
-def gateway_reachable(port: int = GATEWAY_PORT) -> bool:
+def dashboard_direct_accessible() -> bool:
     try:
-        with socket.create_connection(("127.0.0.1", port), timeout=0.8):
-            return True
+        with urllib.request.urlopen(DASHBOARD_URL, timeout=1.5) as response:
+            return 200 <= response.status < 500
     except OSError:
+        probe = run_process(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                (
+                    f"try {{ "
+                    f"$response = Invoke-WebRequest -UseBasicParsing '{DASHBOARD_URL}' -TimeoutSec 3; "
+                    f"[int]$response.StatusCode "
+                    f"}} catch {{ "
+                    f"if ($_.Exception.Response) {{ [int]$_.Exception.Response.StatusCode.value__ }} else {{ exit 1 }} "
+                    f"}}"
+                ),
+            ],
+            timeout=8,
+        )
+        if not probe["ok"]:
+            return False
         try:
-            with urllib.request.urlopen(DASHBOARD_URL, timeout=1.5) as response:
-                return 200 <= response.status < 500
-        except OSError:
-            probe = run_process(
-                [
-                    "powershell",
-                    "-NoProfile",
-                    "-Command",
-                    (
-                        f"try {{ "
-                        f"$response = Invoke-WebRequest -UseBasicParsing '{DASHBOARD_URL}' -TimeoutSec 3; "
-                        f"[int]$response.StatusCode "
-                        f"}} catch {{ "
-                        f"if ($_.Exception.Response) {{ [int]$_.Exception.Response.StatusCode.value__ }} else {{ exit 1 }} "
-                        f"}}"
-                    ),
-                ],
-                timeout=5,
-            )
-            try:
-                status_code = int((probe["stdout"] or "").strip())
-            except ValueError:
-                return False
-            return 200 <= status_code < 500
+            status_code = int((probe["stdout"] or "").strip())
+        except ValueError:
+            return False
+        return 200 <= status_code < 500
 
 
-def gateway_listening_in_wsl(port: int = GATEWAY_PORT) -> bool:
-    probe = run_process(
+def gateway_running_in_wsl(port: int = GATEWAY_PORT) -> bool:
+    service_probe = run_process(
+        [
+            "wsl",
+            "-d",
+            WSL_DISTRO,
+            "--",
+            "bash",
+            "-lc",
+            "systemctl --user is-active openclaw-gateway",
+        ],
+        timeout=10,
+    )
+    if service_probe["ok"] and (service_probe["stdout"] or "").strip() == "active":
+        return True
+
+    port_probe = run_process(
         [
             "wsl",
             "-d",
@@ -121,13 +134,14 @@ def gateway_listening_in_wsl(port: int = GATEWAY_PORT) -> bool:
         ],
         timeout=10,
     )
-    return probe["ok"] and bool((probe["stdout"] or "").strip())
+    return port_probe["ok"] and bool((port_probe["stdout"] or "").strip())
 
 
 def list_recent_videos(limit: int = 8) -> list[dict[str, Any]]:
     video_root = ROOT / "outputs" / "videos"
     if not video_root.exists():
         return []
+
     candidates = sorted(
         (
             path
@@ -137,6 +151,7 @@ def list_recent_videos(limit: int = 8) -> list[dict[str, Any]]:
         key=lambda item: item.stat().st_mtime,
         reverse=True,
     )
+
     recent: list[dict[str, Any]] = []
     for path in candidates[:limit]:
         stat = path.stat()
@@ -159,7 +174,11 @@ def git_output(*args: str) -> str:
 def get_git_summary() -> dict[str, Any]:
     branch = git_output("rev-parse", "--abbrev-ref", "HEAD")
     status = git_output("status", "--short")
-    backup_branch = git_output("for-each-ref", "--format=%(refname:short)", "refs/remotes/origin/codex/backup-before-openclaw-20260314")
+    backup_branch = git_output(
+        "for-each-ref",
+        "--format=%(refname:short)",
+        "refs/remotes/origin/codex/backup-before-openclaw-20260314",
+    )
     return {
         "branch": branch,
         "status": status.splitlines() if status else [],
@@ -169,16 +188,18 @@ def get_git_summary() -> dict[str, Any]:
 
 def get_openclaw_summary() -> dict[str, Any]:
     version_result = run_wsl_openclaw(["--version"], timeout=30)
-    version = (version_result["stdout"] or "").strip().splitlines()
+    version_lines = (version_result["stdout"] or "").strip().splitlines()
+
     agents_result = run_wsl_openclaw(["agents", "list", "--json"], timeout=60)
     agents_payload = extract_last_json_blob(agents_result["stdout"])
     agents = agents_payload if isinstance(agents_payload, list) else []
     target_agent = next((item for item in agents if item.get("id") == AGENT_ID), None)
-    gateway_online = gateway_reachable() or gateway_listening_in_wsl()
+
     return {
-        "version": version[-1] if version else "unknown",
+        "version": version_lines[-1] if version_lines else "unknown",
         "installed": version_result["ok"],
-        "gateway_reachable": gateway_online,
+        "gateway_running": gateway_running_in_wsl(),
+        "dashboard_direct_accessible": dashboard_direct_accessible(),
         "dashboard_url": DASHBOARD_URL,
         "agent_id": AGENT_ID,
         "agent": target_agent,
@@ -194,51 +215,86 @@ def build_status() -> dict[str, Any]:
         "openclaw": get_openclaw_summary(),
         "recent_videos": list_recent_videos(),
         "commands": [
-            'powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 status',
-            'powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 agent --agent video-agent-system --message "检查当前即梦工作流" --json',
-            'powershell -ExecutionPolicy Bypass -File scripts/openclaw-ui.ps1',
-            'python -m app.cli doctor',
-            'python -m app.cli test-prompt-composer',
+            "powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 status",
+            'powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 agent --agent video-agent-system --message "\u68c0\u67e5\u5f53\u524d\u5373\u68a6\u5de5\u4f5c\u6d41" --json',
+            "powershell -ExecutionPolicy Bypass -File scripts/openclaw-ui.ps1",
+            "python -m app.cli doctor",
+            "python -m app.cli test-prompt-composer",
         ],
     }
 
 
-def action_result(title: str, result: dict[str, Any]) -> dict[str, Any]:
+def action_result(action: str, result: dict[str, Any], *, message: str = "") -> dict[str, Any]:
     return {
-        "title": title,
+        "action": action,
         "ok": result["ok"],
         "returncode": result["returncode"],
         "stdout": result["stdout"],
         "stderr": result["stderr"],
         "command": result["command"],
+        "message": message,
     }
 
 
 def run_action(name: str) -> dict[str, Any]:
     if name == "doctor":
-        return action_result("项目体检", run_process([sys.executable, "-m", "app.cli", "doctor"], cwd=ROOT))
+        return action_result(name, run_process([sys.executable, "-m", "app.cli", "doctor"], cwd=ROOT))
+
     if name == "test_asset_planner":
         return action_result(
-            "素材规划测试",
+            name,
             run_process([sys.executable, "-m", "app.cli", "test-asset-planner"], cwd=ROOT),
         )
+
     if name == "test_prompt_composer":
         return action_result(
-            "提示词组装测试",
+            name,
             run_process([sys.executable, "-m", "app.cli", "test-prompt-composer"], cwd=ROOT),
         )
+
     if name == "openclaw_status":
-        return action_result("OpenClaw 状态", run_wsl_openclaw(["status"], timeout=120))
+        return action_result(name, run_wsl_openclaw(["status"], timeout=120))
+
     if name == "open_outputs":
-        subprocess.Popen(["explorer.exe", str(ROOT / "outputs" / "videos")])
+        target = str(ROOT / "outputs" / "videos")
+        subprocess.Popen(["explorer.exe", target])
         return {
-            "title": "打开视频输出目录",
+            "action": name,
             "ok": True,
             "returncode": 0,
-            "stdout": str(ROOT / "outputs" / "videos"),
+            "stdout": target,
             "stderr": "",
-            "command": ["explorer.exe", str(ROOT / "outputs" / "videos")],
+            "command": ["explorer.exe", target],
+            "message": "Video output folder opened in Explorer.",
         }
+
+    if name == "open_dashboard":
+        if not dashboard_direct_accessible():
+            return {
+                "action": name,
+                "ok": False,
+                "returncode": 1,
+                "stdout": "",
+                "stderr": "",
+                "command": [],
+                "message": (
+                    "The official OpenClaw dashboard is running inside WSL, "
+                    "but Windows cannot directly reach 127.0.0.1:18789 on this machine. "
+                    "Use the local console instead."
+                ),
+            }
+
+        webbrowser.open(DASHBOARD_URL)
+        return {
+            "action": name,
+            "ok": True,
+            "returncode": 0,
+            "stdout": DASHBOARD_URL,
+            "stderr": "",
+            "command": [],
+            "message": f"Opened {DASHBOARD_URL} in the default browser.",
+        }
+
     raise KeyError(name)
 
 
@@ -249,7 +305,7 @@ def run_agent_prompt(message: str) -> dict[str, Any]:
     )
     payload = extract_last_json_blob(result["stdout"])
     return {
-        "title": "OpenClaw Agent 回复",
+        "action": "agent_prompt",
         "ok": result["ok"],
         "returncode": result["returncode"],
         "stdout": result["stdout"],
@@ -291,23 +347,26 @@ class ControlHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/action":
                 action = str(payload.get("action") or "").strip()
                 if not action:
-                    self._send_json({"ok": False, "error": "缺少 action 参数。"}, status=HTTPStatus.BAD_REQUEST)
+                    self._send_json({"ok": False, "error": "Missing action."}, status=HTTPStatus.BAD_REQUEST)
                     return
                 try:
                     self._send_json(run_action(action))
                 except KeyError:
-                    self._send_json({"ok": False, "error": f"未知操作：{action}"}, status=HTTPStatus.BAD_REQUEST)
+                    self._send_json(
+                        {"ok": False, "error": f"Unknown action: {action}"},
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
                 return
 
             if parsed.path == "/api/agent":
                 message = str(payload.get("message") or "").strip()
                 if not message:
-                    self._send_json({"ok": False, "error": "消息不能为空。"}, status=HTTPStatus.BAD_REQUEST)
+                    self._send_json({"ok": False, "error": "Message is required."}, status=HTTPStatus.BAD_REQUEST)
                     return
                 self._send_json(run_agent_prompt(message))
                 return
 
-            self._send_json({"ok": False, "error": "接口不存在。"}, status=HTTPStatus.NOT_FOUND)
+            self._send_json({"ok": False, "error": "Not found."}, status=HTTPStatus.NOT_FOUND)
         except Exception as exc:  # noqa: BLE001
             self._send_json({"ok": False, "error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
@@ -324,14 +383,14 @@ class ControlHandler(SimpleHTTPRequestHandler):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="启动本地 OpenClaw 控制台。")
+    parser = argparse.ArgumentParser(description="Serve the local OpenClaw control console.")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--open-browser", action="store_true")
     args = parser.parse_args()
 
     server = ThreadingHTTPServer(("127.0.0.1", args.port), ControlHandler)
     url = f"http://127.0.0.1:{args.port}/"
-    print(f"OpenClaw 本地控制台已启动：{url}")
+    print(f"OpenClaw local console ready at {url}")
 
     if args.open_browser:
         time.sleep(0.3)

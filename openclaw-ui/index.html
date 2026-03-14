@@ -8,57 +8,80 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <div class="aurora"></div>
+    <div class="backdrop"></div>
     <main class="shell">
-      <section class="hero">
-        <div class="hero-copy">
+      <header class="hero panel">
+        <div class="hero-main">
           <p class="eyebrow">本地 OPENCLAW / 视频工作流</p>
           <h1>视频工作流控制台</h1>
           <p class="lede">
-            把 OpenClaw 网关、项目体检、最近生成结果，以及专用的
-            <code>video-agent-system</code> agent 放到同一个本地面板里。
+            用一个更顺手的本地面板集中查看 OpenClaw 状态、项目检查、Agent 调用、最近输出和运行日志。
           </p>
+          <div class="badge-row" id="hero-badges"></div>
+          <p class="hero-note" id="hero-note">正在读取本地状态...</p>
         </div>
-        <div class="hero-actions">
-          <a class="button primary" id="dashboard-link" href="http://127.0.0.1:18789/" target="_blank" rel="noreferrer">打开 OpenClaw 面板</a>
+        <div class="hero-side">
+          <button class="button primary action" data-action="openclaw_status" type="button">查看 OpenClaw 状态</button>
           <button class="button ghost" id="refresh-button" type="button">刷新状态</button>
+          <button class="button subtle" id="dashboard-button" type="button">检查官方 Dashboard</button>
+          <p class="hero-side-note" id="dashboard-hint">先刷新后会显示官方 Dashboard 是否可直连。</p>
         </div>
-      </section>
+      </header>
 
       <section class="status-grid" id="status-grid"></section>
 
-      <section class="workspace-grid">
-        <article class="panel">
+      <section class="top-grid">
+        <article class="panel guide-panel">
           <div class="panel-head">
-            <p class="panel-kicker">AGENT 控制台</p>
-            <h2>给 OpenClaw 下发任务</h2>
+            <p class="panel-kicker">使用逻辑</p>
+            <h2>你可以这样用</h2>
           </div>
-          <form id="agent-form" class="agent-form">
-            <label for="agent-message">消息</label>
-            <textarea id="agent-message" rows="6">检查当前视频工作流，并总结主要入口、输出路径和常用命令。</textarea>
-            <button class="button primary wide" type="submit">发送到 video-agent-system</button>
-          </form>
+          <ol class="step-list">
+            <li>先刷新状态，确认 OpenClaw 网关、工作区和分支信息都正常。</li>
+            <li>需要查环境时，先跑“项目体检”或测试按钮，快速验证基础链路。</li>
+            <li>需要让 OpenClaw 帮你分析任务时，在下方 Agent 区直接输入中文要求。</li>
+            <li>最近视频、常用命令和运行日志会把结果串起来，方便继续下一步。</li>
+          </ol>
+          <div class="tip-block">
+            <p class="tip-title">分区说明</p>
+            <p>上方看状态，中间做操作，下方看输出和日志。日常使用基本不需要跳出这个页面。</p>
+          </div>
         </article>
 
-        <article class="panel">
+        <article class="panel actions-panel">
           <div class="panel-head">
             <p class="panel-kicker">快捷操作</p>
-            <h2>本地检查</h2>
+            <h2>本地检查与常用动作</h2>
           </div>
           <div class="action-grid">
-            <button class="button ghost action" data-action="doctor" type="button">项目体检</button>
-            <button class="button ghost action" data-action="test_asset_planner" type="button">测试素材规划</button>
-            <button class="button ghost action" data-action="test_prompt_composer" type="button">测试提示词组装</button>
-            <button class="button ghost action" data-action="openclaw_status" type="button">查看 OpenClaw 状态</button>
-            <button class="button ghost action" data-action="open_outputs" type="button">打开视频输出目录</button>
+            <button class="button tile action" data-action="doctor" type="button">项目体检</button>
+            <button class="button tile action" data-action="test_asset_planner" type="button">测试素材规划</button>
+            <button class="button tile action" data-action="test_prompt_composer" type="button">测试提示词组装</button>
+            <button class="button tile action" data-action="open_outputs" type="button">打开视频输出目录</button>
+            <button class="button tile action" data-action="open_dashboard" type="button">尝试打开官方 Dashboard</button>
           </div>
         </article>
       </section>
 
-      <section class="workspace-grid">
+      <section class="panel agent-panel">
+        <div class="panel-head">
+          <p class="panel-kicker">Agent 控制区</p>
+          <h2>给 OpenClaw 下发任务</h2>
+        </div>
+        <form id="agent-form" class="agent-form">
+          <label for="agent-message">任务描述</label>
+          <textarea id="agent-message" rows="6">检查当前即梦工作流，并总结主要入口、输出路径、常用命令以及下一步建议。</textarea>
+          <div class="agent-footer">
+            <p class="agent-help">建议直接用中文说清楚你要它查什么、做什么、输出什么。</p>
+            <button class="button primary" type="submit">发送到 video-agent-system</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="bottom-grid">
         <article class="panel">
           <div class="panel-head">
-            <p class="panel-kicker">近期输出</p>
+            <p class="panel-kicker">最近输出</p>
             <h2>最近视频</h2>
           </div>
           <div id="recent-videos" class="video-list"></div>
@@ -76,9 +99,9 @@
       <section class="panel output-panel">
         <div class="panel-head">
           <p class="panel-kicker">运行日志</p>
-          <h2>控制台输出</h2>
+          <h2>结果与回执</h2>
         </div>
-        <pre id="output-log">控制台已就绪。你可以先刷新状态，或者直接给本地 OpenClaw agent 发一条消息。</pre>
+        <pre id="output-log">控制台已就绪。先刷新状态，或者直接执行一个动作。</pre>
       </section>
     </main>
 
