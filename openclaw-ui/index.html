@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OpenClaw Video Control Room</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="aurora"></div>
+    <main class="shell">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">LOCAL OPENCLAW / VIDEO AGENT</p>
+          <h1>Video Agent Control Room</h1>
+          <p class="lede">
+            Keep the OpenClaw gateway, project health checks, recent renders, and the
+            dedicated <code>video-agent-system</code> agent in one calm surface.
+          </p>
+        </div>
+        <div class="hero-actions">
+          <a class="button primary" id="dashboard-link" href="http://127.0.0.1:18789/" target="_blank" rel="noreferrer">Open OpenClaw Dashboard</a>
+          <button class="button ghost" id="refresh-button" type="button">Refresh Status</button>
+        </div>
+      </section>
+
+      <section class="status-grid" id="status-grid"></section>
+
+      <section class="workspace-grid">
+        <article class="panel">
+          <div class="panel-head">
+            <p class="panel-kicker">AGENT CONSOLE</p>
+            <h2>Send a task to OpenClaw</h2>
+          </div>
+          <form id="agent-form" class="agent-form">
+            <label for="agent-message">Message</label>
+            <textarea id="agent-message" rows="6">Inspect the current video workflow and summarize the main entry points, output paths, and useful commands.</textarea>
+            <button class="button primary wide" type="submit">Send to video-agent-system</button>
+          </form>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <p class="panel-kicker">QUICK ACTIONS</p>
+            <h2>Local checks</h2>
+          </div>
+          <div class="action-grid">
+            <button class="button ghost action" data-action="doctor" type="button">Project Doctor</button>
+            <button class="button ghost action" data-action="test_asset_planner" type="button">Test Asset Planner</button>
+            <button class="button ghost action" data-action="test_prompt_composer" type="button">Test Prompt Composer</button>
+            <button class="button ghost action" data-action="openclaw_status" type="button">Check OpenClaw Status</button>
+            <button class="button ghost action" data-action="open_outputs" type="button">Open Video Output Folder</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="workspace-grid">
+        <article class="panel">
+          <div class="panel-head">
+            <p class="panel-kicker">RECENT OUTPUTS</p>
+            <h2>Recent videos</h2>
+          </div>
+          <div id="recent-videos" class="video-list"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <p class="panel-kicker">COMMAND DOCK</p>
+            <h2>Ready-to-run commands</h2>
+          </div>
+          <div id="command-list" class="command-list"></div>
+        </article>
+      </section>
+
+      <section class="panel output-panel">
+        <div class="panel-head">
+          <p class="panel-kicker">RUN LOG</p>
+          <h2>Console output</h2>
+        </div>
+        <pre id="output-log">Ready. Refresh the status cards or send a prompt to the local OpenClaw agent.</pre>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

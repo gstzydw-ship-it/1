@@ -9,3 +9,6 @@ data/
 tmp/
 *.db
 *.sqlite3
+*.egg-info/
+.playwright-cli/
+.openclaw-workspace/
