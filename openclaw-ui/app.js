@@ -6,6 +6,7 @@ const commandList = document.querySelector("#command-list");
 const outputLog = document.querySelector("#output-log");
 const refreshButton = document.querySelector("#refresh-button");
 const dashboardButton = document.querySelector("#dashboard-button");
+const copyDashboardButton = document.querySelector("#copy-dashboard-button");
 const dashboardHint = document.querySelector("#dashboard-hint");
 const agentForm = document.querySelector("#agent-form");
 const agentMessage = document.querySelector("#agent-message");
@@ -17,6 +18,7 @@ const actionTitles = {
   open_outputs: "打开视频输出目录",
   openclaw_status: "查看 OpenClaw 状态",
   open_dashboard: "官方 Dashboard",
+  copy_dashboard_url: "复制带令牌链接",
   agent_prompt: "Agent 回复",
 };
 
@@ -56,14 +58,21 @@ function formatLogPayload(payload) {
   if (payload?.action === "open_dashboard") {
     sections.push(
       payload.ok
-        ? "已尝试在默认浏览器中打开官方 Dashboard。"
-        : "官方 Dashboard 运行在 WSL 里，但这台机器的 Windows 当前不能直接访问 127.0.0.1:18789，请直接使用本地控制台。",
+        ? "已尝试在默认浏览器中用当前令牌打开官方 Dashboard，并把链接复制到了剪贴板。"
+        : "官方 Dashboard 打开失败。先点“复制带令牌链接”，再用新的链接重开页面。",
+    );
+  } else if (payload?.action === "copy_dashboard_url") {
+    sections.push(
+      payload.ok
+        ? "已复制带当前令牌的 Dashboard 链接。若页面提示 token mismatch，请用这条新链接重新打开。"
+        : "复制 Dashboard 链接失败，请先检查 OpenClaw 状态。",
     );
   } else if (payload?.action === "open_outputs") {
     sections.push("已在资源管理器中打开视频输出目录。");
   } else if (payload?.message) {
     sections.push(payload.message);
   }
+
   if (payload?.command?.length) {
     sections.push(`执行命令：\n${payload.command.join(" ")}`);
   }
@@ -98,7 +107,7 @@ function renderHero(data) {
     { label: "OpenClaw", value: data.openclaw.installed ? data.openclaw.version : "未安装" },
     { label: "Agent", value: data.openclaw.agent_id },
     { label: "网关", value: data.openclaw.gateway_running ? "运行中" : "未运行" },
-    { label: "Dashboard", value: data.openclaw.dashboard_direct_accessible ? "可直连" : "不可直连" },
+    { label: "Dashboard", value: data.openclaw.dashboard_direct_accessible ? "可直连" : "需重连" },
   ];
 
   heroBadges.innerHTML = badges
@@ -112,22 +121,28 @@ function renderHero(data) {
     )
     .join("");
 
-  if (data.openclaw.dashboard_direct_accessible) {
+  if (data.openclaw.gateway_running) {
     dashboardButton.disabled = false;
-    dashboardButton.textContent = "打开官方 Dashboard";
-    dashboardHint.textContent = "当前探测到官方 Dashboard 可直连；如果浏览器还是打不开，就继续使用这个本地控制台。";
-    heroNote.textContent = "OpenClaw 网关正在运行。日常操作优先用这个本地控制台，需要时再尝试打开官方 Dashboard。";
-  } else if (data.openclaw.gateway_running) {
-    dashboardButton.disabled = true;
-    dashboardButton.textContent = "官方 Dashboard 当前不可直连";
-    dashboardHint.textContent = "网关在 WSL 中运行，但 Windows 当前无法直接打开 127.0.0.1:18789。";
-    heroNote.textContent = "官方 Dashboard 当前打不开不是你的操作问题，先用这个本地控制台即可。";
-  } else {
-    dashboardButton.disabled = true;
-    dashboardButton.textContent = "官方 Dashboard 当前不可用";
-    dashboardHint.textContent = "OpenClaw 网关没有在运行，先查看状态并确认服务正常。";
-    heroNote.textContent = "先确认 OpenClaw 网关是否启动，再进行 Agent 调用或工作流检查。";
+    copyDashboardButton.disabled = false;
+
+    if (data.openclaw.dashboard_direct_accessible) {
+      dashboardButton.textContent = "打开官方 Dashboard";
+      dashboardHint.textContent = "如果页面仍提示 token mismatch，先点“复制带令牌链接”，再用新链接重新进入。";
+      heroNote.textContent = "OpenClaw 网关正常运行。日常操作优先用这个本地控制台，官方 Dashboard 主要用于补充查看。";
+      return;
+    }
+
+    dashboardButton.textContent = "重新打开官方 Dashboard";
+    dashboardHint.textContent = "当前 Windows 侧直连检测不稳定，但你仍可以重开页面；如果报 token mismatch，优先复制带令牌链接。";
+    heroNote.textContent = "这不是你操作错了。现在最稳的修法是复制带令牌链接重新进入，或继续直接用本地控制台。";
+    return;
   }
+
+  dashboardButton.disabled = true;
+  copyDashboardButton.disabled = true;
+  dashboardButton.textContent = "官方 Dashboard 暂不可用";
+  dashboardHint.textContent = "OpenClaw 网关当前没有运行，先刷新状态或检查服务。";
+  heroNote.textContent = "先确认 OpenClaw 网关是否启动，再进行 Agent 调用或 Dashboard 修复。";
 }
 
 function renderStatuses(data) {
@@ -146,12 +161,12 @@ function renderStatuses(data) {
       tone: data.openclaw.gateway_running ? "ok" : "warn",
     },
     {
-      label: "Dashboard 直连",
-      value: data.openclaw.dashboard_direct_accessible ? "可打开" : "打不开",
+      label: "Dashboard 连接",
+      value: data.openclaw.dashboard_direct_accessible ? "可打开" : "建议重连",
       meta: data.openclaw.dashboard_direct_accessible
-        ? data.openclaw.dashboard_url
-        : "当前 Windows 侧不能直接访问 127.0.0.1:18789",
-      tone: data.openclaw.dashboard_direct_accessible ? "ok" : "warn",
+        ? `${data.openclaw.dashboard_url} | 若提示 token mismatch，可复制带令牌链接重开`
+        : "当前 Windows 侧直连不稳定；如果页面已经打开却报 token mismatch，请复制带令牌链接重新进入。",
+      tone: data.openclaw.gateway_running ? (data.openclaw.dashboard_direct_accessible ? "ok" : "warn") : "warn",
     },
     {
       label: "工作区",
@@ -257,7 +272,7 @@ async function runAction(action) {
   });
   const payload = await response.json();
   setOutput(title, payload);
-  if (action === "open_dashboard") {
+  if (action === "open_dashboard" || action === "copy_dashboard_url") {
     await refresh();
   }
 }
@@ -268,10 +283,18 @@ for (const button of document.querySelectorAll(".action")) {
 
 dashboardButton.addEventListener("click", async () => {
   if (dashboardButton.disabled) {
-    setOutput("官方 Dashboard", "当前 Windows 侧无法直接打开官方 Dashboard，请直接使用这个本地控制台。");
+    setOutput("官方 Dashboard", "当前网关未运行，先刷新状态并确认 OpenClaw 服务正常。");
     return;
   }
   await runAction("open_dashboard");
+});
+
+copyDashboardButton.addEventListener("click", async () => {
+  if (copyDashboardButton.disabled) {
+    setOutput("复制带令牌链接", "当前网关未运行，暂时不建议同步 Dashboard 链接。");
+    return;
+  }
+  await runAction("copy_dashboard_url");
 });
 
 agentForm.addEventListener("submit", async (event) => {

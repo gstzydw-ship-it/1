@@ -7,7 +7,6 @@ import subprocess
 import sys
 import time
 import urllib.request
-import webbrowser
 from datetime import datetime
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -33,6 +32,21 @@ def to_wsl_path(path: Path) -> str:
 
 ROOT_WSL = to_wsl_path(ROOT)
 OPENCLAW_WSL_SCRIPT = f"{ROOT_WSL}/scripts/openclaw-wsl.sh"
+OPENCLAW_PS1 = ROOT / "scripts" / "openclaw.ps1"
+
+
+def clean_process_output(text: str) -> str:
+    if not text:
+        return ""
+
+    normalized = text.replace("\x00", "")
+    kept: list[str] = []
+    for line in normalized.splitlines():
+        lowered = line.strip().lower()
+        if "localhost" in lowered and ("wsl" in lowered or "nat" in lowered):
+            continue
+        kept.append(line.rstrip())
+    return "\n".join(kept).strip()
 
 
 def run_process(command: list[str], *, cwd: Path | None = None, timeout: int = 120) -> dict[str, Any]:
@@ -48,8 +62,8 @@ def run_process(command: list[str], *, cwd: Path | None = None, timeout: int = 1
     return {
         "ok": completed.returncode == 0,
         "returncode": completed.returncode,
-        "stdout": completed.stdout,
-        "stderr": completed.stderr,
+        "stdout": clean_process_output(completed.stdout),
+        "stderr": clean_process_output(completed.stderr),
         "command": command,
     }
 
@@ -58,6 +72,18 @@ def run_wsl_openclaw(args: list[str], *, timeout: int = 120) -> dict[str, Any]:
     arg_text = " ".join(shlex.quote(item) for item in args)
     bash_script = f"cd {shlex.quote(ROOT_WSL)} && {shlex.quote(OPENCLAW_WSL_SCRIPT)} {arg_text}".strip()
     return run_process(["wsl", "-d", WSL_DISTRO, "--", "bash", "-lc", bash_script], timeout=timeout)
+
+
+def run_windows_openclaw(args: list[str], *, timeout: int = 120) -> dict[str, Any]:
+    result = run_process(
+        ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(OPENCLAW_PS1), *args],
+        cwd=ROOT,
+        timeout=timeout,
+    )
+    lowered_stderr = (result["stderr"] or "").lower()
+    if result["ok"] and "localhost" in lowered_stderr and "wsl" in lowered_stderr:
+        result["stderr"] = ""
+    return result
 
 
 def extract_last_json_blob(text: str) -> Any | None:
@@ -216,6 +242,7 @@ def build_status() -> dict[str, Any]:
         "recent_videos": list_recent_videos(),
         "commands": [
             "powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 status",
+            "powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 dashboard --no-open",
             'powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 agent --agent video-agent-system --message "\u68c0\u67e5\u5f53\u524d\u5373\u68a6\u5de5\u4f5c\u6d41" --json',
             "powershell -ExecutionPolicy Bypass -File scripts/openclaw-ui.ps1",
             "python -m app.cli doctor",
@@ -268,32 +295,25 @@ def run_action(name: str) -> dict[str, Any]:
             "message": "Video output folder opened in Explorer.",
         }
 
-    if name == "open_dashboard":
-        if not dashboard_direct_accessible():
-            return {
-                "action": name,
-                "ok": False,
-                "returncode": 1,
-                "stdout": "",
-                "stderr": "",
-                "command": [],
-                "message": (
-                    "The official OpenClaw dashboard is running inside WSL, "
-                    "but Windows cannot directly reach 127.0.0.1:18789 on this machine. "
-                    "Use the local console instead."
-                ),
-            }
+    if name == "copy_dashboard_url":
+        return action_result(
+            name,
+            run_windows_openclaw(["dashboard", "--no-open"], timeout=120),
+            message=(
+                "Copied the official Dashboard URL with the current token to the clipboard. "
+                "If the page says token mismatch, reopen it with the fresh link or paste the token in Control UI settings."
+            ),
+        )
 
-        webbrowser.open(DASHBOARD_URL)
-        return {
-            "action": name,
-            "ok": True,
-            "returncode": 0,
-            "stdout": DASHBOARD_URL,
-            "stderr": "",
-            "command": [],
-            "message": f"Opened {DASHBOARD_URL} in the default browser.",
-        }
+    if name == "open_dashboard":
+        return action_result(
+            name,
+            run_windows_openclaw(["dashboard"], timeout=120),
+            message=(
+                "Tried to open the official Dashboard with the current token and copied the link to the clipboard. "
+                "If the page still shows token mismatch, reopen it from the copied link."
+            ),
+        )
 
     raise KeyError(name)
 
