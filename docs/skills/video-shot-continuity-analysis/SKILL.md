@@ -38,6 +38,45 @@ Mandatory continuity signals:
 - Scene geometry and landmark carry-over
 - Any on-screen element that the prior frame made narratively or visually important
 
+## Narrative Priority Rule
+
+Do not treat every script detail as equally mandatory.
+
+Before rejecting or regenerating a shot, classify missing or altered details into one of three levels:
+
+- `must_keep_story_detail`
+- `compressible_story_detail`
+- `optional_flavor_detail`
+
+Use this test:
+
+- If removing the detail breaks plot comprehension, character relationship, identity reveal, motivation, or the cause-and-effect chain, it is `must_keep_story_detail`.
+- If removing the detail still preserves the plot beat but loses some richness, it is `compressible_story_detail`.
+- If removing the detail only reduces texture, atmosphere, or descriptive flourish without harming the beat, it is `optional_flavor_detail`.
+
+Examples of `must_keep_story_detail`:
+
+- Who saves whom
+- Whether the rescue succeeded
+- Whether a key person is recognized
+- Whether a promise, refusal, demand, accusation, or deal is clearly established
+- Whether a later line depends on a prior reveal
+
+Examples of `compressible_story_detail`:
+
+- The exact micro-action used to transition into a conversation
+- Whether a character adjusts clothing, stands fully upright, or takes a half-step before speaking
+- A non-essential intermediate reaction if the before and after states are both clear
+
+Examples of `optional_flavor_detail`:
+
+- Wiping soot or tears before a reveal when the reveal still reads clearly without it
+- Decorative gesture beats that do not change the meaning
+- Extra environmental business that adds flavor but not narrative necessity
+
+Do not regenerate a usable sequence just because an `optional_flavor_detail` is absent.
+Do regenerate or patch when a `must_keep_story_detail` is missing, contradicted, or replaced by a wrong event.
+
 ## Workflow
 
 1. Read the previous shot's ending frame or strongest usable late-frame still.
@@ -46,6 +85,9 @@ Mandatory continuity signals:
    - May crop out but must remain logically implied
    - May fully exit
    - Must change
+   - Must-keep story details
+   - Compressible story details
+   - Optional flavor details
 3. Decide the cut type:
    - Direct continuation
    - Insert / detail bridge shot
@@ -65,6 +107,9 @@ For every cut, explicitly label:
 - `must_keep_visible_elements`
 - `must_keep_implied_elements`
 - `must_keep_background_landmarks`
+- `must_keep_story_details`
+- `compressible_story_details`
+- `optional_flavor_details`
 - `can_crop_out`
 - `can_exit_frame`
 - `screen_direction`
@@ -344,6 +389,13 @@ Reject or revise when you see:
 - Spatial relationships between body, companion, and attached objects become physically inconsistent across the cut.
 - A generated close-up is compositionally nice but cannot plausibly be the next camera setup from the prior frame.
 - The next shot invents a cleaner or emptier environment than the previous shot established.
+- A must-keep story detail disappears even though the later dialogue or action depends on it.
+
+Do not reject only for these reasons:
+
+- An optional descriptive flourish from the script is simplified away
+- A non-essential micro gesture is omitted
+- A cosmetic transition beat is compressed as long as the plot beat still reads cleanly
 
 ## Output Format
 
@@ -356,6 +408,9 @@ identity_lock_refs:
 must_keep_visible_elements:
 must_keep_implied_elements:
 must_keep_background_landmarks:
+must_keep_story_details:
+compressible_story_details:
+optional_flavor_details:
 can_crop_out:
 can_exit_frame:
 screen_direction:

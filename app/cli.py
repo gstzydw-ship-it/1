@@ -2085,6 +2085,7 @@ def run_one_shot(
         JimengOneShotRequest(
             shot_id=composer_response.shot_id,
             prompt_main=composer_response.prompt_main,
+            model_name="Seedance 2.0 Fast",
             prompt_negative=composer_response.prompt_negative,
             ref_assets_in_order=composer_response.ref_assets_in_order,
             reference_file_paths=reference_file_paths,
@@ -2187,6 +2188,7 @@ def run_two_shots(
         JimengOneShotRequest(
             shot_id=shot_1_composer.shot_id,
             prompt_main=shot_1_composer.prompt_main,
+            model_name="Seedance 2.0 Fast",
             prompt_negative=shot_1_composer.prompt_negative,
             ref_assets_in_order=shot_1_composer.ref_assets_in_order,
             reference_file_paths=shot_1_reference_files,
@@ -2268,6 +2270,7 @@ def run_two_shots(
         JimengOneShotRequest(
             shot_id=shot_2_composer.shot_id,
             prompt_main=shot_2_composer.prompt_main,
+            model_name="Seedance 2.0 Fast",
             prompt_negative=shot_2_composer.prompt_negative,
             ref_assets_in_order=shot_2_composer.ref_assets_in_order,
             reference_file_paths=shot_2_all_reference_files,

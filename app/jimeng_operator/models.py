@@ -22,6 +22,7 @@ class JimengDryRunRequest:
     """即梦 dry run 输入。"""
 
     prompt_main: str
+    duration_seconds: int = 0
     ref_assets_in_order: list[str] = field(default_factory=list)
     reference_file_paths: list[Path] = field(default_factory=list)
 
@@ -37,6 +38,7 @@ class JimengDryRunResult:
     validation_passed: bool = False
     uploaded_reference_names: list[str] = field(default_factory=list)
     selected_reference_names: list[str] = field(default_factory=list)
+    failed_stage: str = ""
     messages: list[str] = field(default_factory=list)
 
 
@@ -46,6 +48,8 @@ class JimengOneShotRequest:
 
     shot_id: str
     prompt_main: str
+    model_name: str = ""
+    duration_seconds: int = 0
     prompt_negative: str = ""
     ref_assets_in_order: list[str] = field(default_factory=list)
     reference_file_paths: list[Path] = field(default_factory=list)

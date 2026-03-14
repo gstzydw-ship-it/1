@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import re
 import time
 import urllib.request
@@ -40,6 +41,17 @@ NEGATIVE_PROMPT_SELECTORS = (
     "textarea[aria-label*='负向']",
 )
 
+MODEL_SELECT_SELECTORS = (
+    "div.toolbar-settings-YNMCja div.lv-select",
+    "div.lv-select[role='combobox']",
+)
+
+GENERATE_PAGE_STRONG_MARKERS = (
+    "div.toolbar-settings-YNMCja",
+    "text=创建新会话",
+    "div.lv-select:has-text('全能参考')",
+)
+
 DOWNLOAD_ENTRY_SELECTORS = (
     "button:has-text('下载')",
     "a:has-text('下载')",
@@ -57,6 +69,13 @@ RESULT_FAILED_TEXTS = ("失败", "异常", "重试")
 LOGIN_REQUIRED_TEXTS = ("同意协议后前往登录", "已阅读并同意用户服务协议", "前往登录")
 
 
+GENERATE_API_MARKER = "/mweb/v1/aigc_draft/generate"
+HISTORY_BY_IDS_API = "/mweb/v1/get_history_by_ids?aid=513695"
+HISTORY_SUCCESS_TASK_STATUS = 50
+HISTORY_FAILED_TASK_STATUS = 40
+HISTORY_FAILED_STATUS = 30
+
+
 class BrowserSessionProtocol(Protocol):
     """供 operator 调用的最小浏览器会话协议。"""
 
@@ -67,6 +86,10 @@ class BrowserSessionProtocol(Protocol):
     def enter_video_reference_mode(self, selectors: JimengSelectors) -> bool: ...
 
     def fill_prompt(self, selectors: JimengSelectors, prompt_main: str) -> bool: ...
+
+    def select_model(self, model_name: str) -> bool: ...
+
+    def select_duration_seconds(self, duration_seconds: int) -> bool: ...
 
     def fill_negative_prompt(self, prompt_negative: str) -> bool: ...
 
@@ -96,6 +119,9 @@ class PlaywrightBrowserSession:
         self._baseline_ready_marker_count = 0
         self._baseline_video_srcs: set[str] = set()
         self._latest_generated_video_src = ""
+        self._latest_submit_id = ""
+        self._latest_history_record_id = ""
+        self._latest_history_payload: dict[str, object] | None = None
 
     def goto(self, url: str) -> None:
         self._ensure_started()
@@ -131,11 +157,19 @@ class PlaywrightBrowserSession:
         if locator is None:
             return False
 
-        locator.click()
-        self._page.keyboard.press("Control+A")
-        self._page.keyboard.press("Backspace")
-        self._page.keyboard.type(prompt_main)
-        return True
+        return self._replace_editor_text(locator, prompt_main)
+
+    def select_model(self, model_name: str) -> bool:
+        normalized_model_name = model_name.strip()
+        if not normalized_model_name:
+            return False
+
+        return self._select_toolbar_option_for_current_text(("Seedance", "即梦"), normalized_model_name)
+
+    def select_duration_seconds(self, duration_seconds: int) -> bool:
+        if duration_seconds <= 0:
+            return True
+        return self._select_toolbar_option_for_pattern(r"^\d+s$", f"{duration_seconds}s")
 
     def fill_negative_prompt(self, prompt_negative: str) -> bool:
         if not prompt_negative.strip():
@@ -145,14 +179,7 @@ class PlaywrightBrowserSession:
         if locator is None:
             return False
 
-        locator.click()
-        try:
-            locator.fill(prompt_negative)
-        except Exception:
-            self._page.keyboard.press("Control+A")
-            self._page.keyboard.press("Backspace")
-            self._page.keyboard.type(prompt_negative)
-        return True
+        return self._replace_editor_text(locator, prompt_negative)
 
     def upload_reference_files(self, selectors: JimengSelectors, file_paths: list[Path]) -> list[str]:
         if not file_paths:
@@ -171,27 +198,41 @@ class PlaywrightBrowserSession:
         if prompt_locator is None:
             return False
 
+        mention_target, trailing_text = self._split_reference_asset_label(asset_name)
         prompt_locator.click()
         for key in ("Control+End", "End"):
             try:
                 self._page.keyboard.press(key)
             except Exception:
                 continue
-        self._page.keyboard.type(" ")
-        self._page.keyboard.type("@")
+        self._page.keyboard.press("Space")
+        self._insert_text("@")
         self._page.wait_for_timeout(800)
 
-        typed_name = asset_name.strip()
-        if typed_name:
-            self._page.keyboard.type(typed_name)
-            self._page.wait_for_timeout(800)
-
-        if self._click_reference_option_by_name(asset_name):
-            self._page.keyboard.type(" ")
+        if self._select_reference_option_via_keyboard(mention_target):
+            if trailing_text:
+                self._page.keyboard.press("Space")
+                self._insert_text(trailing_text)
+            self._page.keyboard.press("Enter")
             return True
 
-        if self._click_reference_option_by_index(selectors, asset_name):
-            self._page.keyboard.type(" ")
+        typed_name = mention_target.strip()
+        if typed_name:
+            self._insert_text(typed_name)
+            self._page.wait_for_timeout(800)
+
+        if self._click_reference_option_by_name(mention_target):
+            if trailing_text:
+                self._page.keyboard.press("Space")
+                self._insert_text(trailing_text)
+            self._page.keyboard.press("Enter")
+            return True
+
+        if self._click_reference_option_by_index(selectors, mention_target):
+            if trailing_text:
+                self._page.keyboard.press("Space")
+                self._insert_text(trailing_text)
+            self._page.keyboard.press("Enter")
             return True
 
         return False
@@ -209,12 +250,34 @@ class PlaywrightBrowserSession:
                 try:
                     if not candidate.is_visible():
                         continue
+                except Exception:
+                    continue
+
+                try:
+                    mention_labels = candidate.locator(".node-reference-mention-tag .label-HChfn7")
+                    label_count = mention_labels.count()
+                except Exception:
+                    label_count = 0
+
+                if label_count > 0:
+                    deduped_names: list[str] = []
+                    for label_index in range(label_count):
+                        try:
+                            label_text = "".join((mention_labels.nth(label_index).inner_text(timeout=1000) or "").split())
+                        except Exception:
+                            continue
+                        if label_text and label_text not in deduped_names:
+                            deduped_names.append(label_text)
+                    if deduped_names:
+                        return deduped_names
+
+                try:
                     editor_text = candidate.inner_text()
                 except Exception:
                     continue
                 names = re.findall(r"图片\s*(\d+)", editor_text)
                 if names:
-                    deduped_names: list[str] = []
+                    deduped_names = []
                     for index_text in names:
                         normalized = f"图片{index_text}"
                         if normalized not in deduped_names:
@@ -229,6 +292,9 @@ class PlaywrightBrowserSession:
         self._baseline_ready_marker_count = self._count_ready_markers()
         self._baseline_video_srcs = self._collect_video_srcs()
         self._latest_generated_video_src = ""
+        self._latest_submit_id = ""
+        self._latest_history_record_id = ""
+        self._latest_history_payload = None
         locator = self._first_visible_locator(GENERATE_BUTTON_SELECTORS, timeout_ms=2500)
         if locator is None:
             return False
@@ -239,18 +305,35 @@ class PlaywrightBrowserSession:
         except Exception:
             pass
 
+        generate_response = None
         try:
-            locator.click(timeout=5000)
+            with self._page.expect_response(
+                lambda response: GENERATE_API_MARKER in response.url and response.request.method == "POST",
+                timeout=45000,
+            ) as response_info:
+                try:
+                    locator.click(timeout=5000)
+                except Exception:
+                    locator.click(timeout=5000, force=True)
+            generate_response = response_info.value
         except Exception:
             try:
-                locator.click(timeout=5000, force=True)
+                locator.click(timeout=5000)
             except Exception:
-                return False
+                try:
+                    locator.click(timeout=5000, force=True)
+                except Exception:
+                    return False
 
         self._page.wait_for_timeout(3000)
+        if generate_response is not None:
+            self._capture_generation_identity(generate_response)
         return True
 
     def wait_for_generation_result(self, timeout_seconds: int, poll_interval_seconds: int) -> tuple[bool, str]:
+        if self._latest_submit_id:
+            return self._wait_for_generation_result_by_history(timeout_seconds, poll_interval_seconds)
+
         deadline = None if timeout_seconds <= 0 else time.time() + max(timeout_seconds, 5)
         while deadline is None or time.time() < deadline:
             body_text = self._safe_body_text()
@@ -281,6 +364,9 @@ class PlaywrightBrowserSession:
 
     def download_latest_result(self, output_path: Path) -> bool:
         output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if self._try_download_history_video(output_path):
+            return True
 
         if self._try_download_tracked_video_src(output_path):
             return True
@@ -344,6 +430,147 @@ class PlaywrightBrowserSession:
                 continue
         return None
 
+    def _visible_toolbar_selects(self) -> list[Locator]:
+        self._ensure_started()
+        collected: list[Locator] = []
+        for selector in MODEL_SELECT_SELECTORS:
+            locator = self._page.locator(selector)
+            try:
+                count = locator.count()
+            except Exception:
+                continue
+            for index in range(count):
+                candidate = locator.nth(index)
+                try:
+                    if not candidate.is_visible():
+                        continue
+                except Exception:
+                    continue
+                collected.append(candidate)
+            if collected:
+                break
+        return collected
+
+    def _select_toolbar_option(self, select_index: int, target_text: str) -> bool:
+        normalized_target = target_text.strip()
+        if not normalized_target:
+            return False
+
+        selects = self._visible_toolbar_selects()
+        if select_index < 0 or select_index >= len(selects):
+            return False
+
+        select_locator = selects[select_index]
+        try:
+            select_locator.click(timeout=5000)
+        except Exception:
+            box = select_locator.bounding_box()
+            if box is None:
+                return False
+            self._page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+
+        self._page.wait_for_timeout(1200)
+        option_locator = self._first_visible_locator(
+            (
+                f".lv-select-option:has-text('{normalized_target}')",
+                f"[role='option']:has-text('{normalized_target}')",
+                f"text={normalized_target}",
+            ),
+            timeout_ms=3000,
+        )
+        if option_locator is None:
+            return False
+
+        try:
+            option_locator.click(timeout=5000)
+        except Exception:
+            box = option_locator.bounding_box()
+            if box is None:
+                return False
+            self._page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+
+        self._page.wait_for_timeout(1500)
+        try:
+            return normalized_target in (select_locator.inner_text(timeout=2000) or "")
+        except Exception:
+            body_text = self._safe_body_text()
+            return normalized_target in body_text
+
+    def _select_toolbar_option_for_current_text(
+        self,
+        current_text_markers: tuple[str, ...],
+        target_text: str,
+    ) -> bool:
+        normalized_target = target_text.strip()
+        if not normalized_target:
+            return False
+
+        for select_locator in self._visible_toolbar_selects():
+            try:
+                current_text = select_locator.inner_text(timeout=2000) or ""
+            except Exception:
+                continue
+            if not any(marker in current_text for marker in current_text_markers):
+                continue
+            return self._select_toolbar_option_locator(select_locator, normalized_target)
+        return False
+
+    def _select_toolbar_option_for_pattern(self, current_text_pattern: str, target_text: str) -> bool:
+        normalized_target = target_text.strip()
+        if not normalized_target:
+            return False
+
+        pattern = re.compile(current_text_pattern)
+        for select_locator in self._visible_toolbar_selects():
+            try:
+                current_text = (select_locator.inner_text(timeout=2000) or "").strip()
+            except Exception:
+                continue
+            if not pattern.fullmatch(current_text):
+                continue
+            return self._select_toolbar_option_locator(select_locator, normalized_target)
+        return False
+
+    def _select_toolbar_option_locator(self, select_locator: Locator, target_text: str) -> bool:
+        normalized_target = target_text.strip()
+        if not normalized_target:
+            return False
+
+        try:
+            select_locator.click(timeout=5000)
+        except Exception:
+            box = select_locator.bounding_box()
+            if box is None:
+                return False
+            self._page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+
+        self._page.wait_for_timeout(1200)
+        option_locator = self._first_visible_locator(
+            (
+                f".lv-select-option:has-text('{normalized_target}')",
+                f"[role='option']:has-text('{normalized_target}')",
+                f"text={normalized_target}",
+            ),
+            timeout_ms=3000,
+        )
+        if option_locator is None:
+            return False
+
+        try:
+            option_locator.click(timeout=5000)
+        except Exception:
+            box = option_locator.bounding_box()
+            if box is None:
+                return False
+            self._page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+
+        self._page.wait_for_timeout(1500)
+        try:
+            return normalized_target in (select_locator.inner_text(timeout=2000) or "")
+        except Exception:
+            body_text = self._safe_body_text()
+            return normalized_target in body_text
+
     def _click_reference_option_by_name(self, asset_name: str) -> bool:
         selectors = build_reference_option_selectors(asset_name)
         for selector in selectors:
@@ -373,20 +600,238 @@ class PlaywrightBrowserSession:
                 continue
         return False
 
+    def _select_reference_option_via_keyboard(self, asset_name: str) -> bool:
+        match = re.fullmatch(r"图片(\d+)", asset_name)
+        if match is None:
+            return False
+
+        option_index = max(int(match.group(1)) - 1, 0)
+        try:
+            for _ in range(option_index):
+                self._page.keyboard.press("ArrowDown")
+                self._page.wait_for_timeout(120)
+            self._page.keyboard.press("Enter")
+            self._page.wait_for_timeout(800)
+            return True
+        except Exception:
+            return False
+
+    def _split_reference_asset_label(self, asset_name: str) -> tuple[str, str]:
+        normalized = " ".join(asset_name.strip().split())
+        if not normalized:
+            return "", ""
+
+        match = re.match(r"^(图片\s*\d+)(.*)$", normalized)
+        if match is None:
+            return normalized, ""
+
+        mention_target = re.sub(r"\s+", "", match.group(1))
+        trailing_text = match.group(2).strip()
+        return mention_target, trailing_text
+
+    def _replace_editor_text(self, locator, text: str) -> bool:
+        sanitized_text = text.strip()
+        try:
+            locator.click()
+        except Exception:
+            return False
+
+        try:
+            tag_name = (locator.evaluate("el => el.tagName") or "").lower()
+        except Exception:
+            tag_name = ""
+
+        if tag_name == "textarea":
+            try:
+                locator.fill("")
+                locator.fill(sanitized_text)
+                return True
+            except Exception:
+                pass
+
+        try:
+            self._page.keyboard.press("Control+A")
+            self._page.keyboard.press("Backspace")
+            self._insert_text(sanitized_text)
+            return True
+        except Exception:
+            return self._replace_editor_text_via_dom(locator, sanitized_text, tag_name)
+
+    def _replace_editor_text_via_dom(self, locator, text: str, tag_name: str) -> bool:
+        try:
+            locator.evaluate(
+                """(el, payload) => {
+                    const [value, current_tag] = payload;
+                    if (current_tag === 'textarea') {
+                        el.value = value;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        return;
+                    }
+                    if (el.isContentEditable || el.getAttribute('contenteditable') === 'true') {
+                        el.focus();
+                        el.textContent = value;
+                        el.dispatchEvent(new InputEvent('input', {
+                            bubbles: true,
+                            data: value,
+                            inputType: 'insertText',
+                        }));
+                        return;
+                    }
+                    if ('value' in el) {
+                        el.value = value;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }""",
+                [text, tag_name],
+            )
+            return True
+        except Exception:
+            return False
+
+    def _insert_text(self, text: str) -> None:
+        try:
+            self._page.keyboard.insert_text(text)
+        except Exception:
+            self._page.keyboard.type(text)
+
+    def _capture_generation_identity(self, response) -> None:
+        try:
+            payload = response.json()
+        except Exception:
+            return
+
+        data = payload.get("data", {}).get("aigc_data", {})
+        if not isinstance(data, dict):
+            return
+
+        submit_id = str(data.get("submit_id") or data.get("task", {}).get("submit_id") or "").strip()
+        history_record_id = str(data.get("history_record_id") or data.get("task", {}).get("history_id") or "").strip()
+        if submit_id:
+            self._latest_submit_id = submit_id
+        if history_record_id:
+            self._latest_history_record_id = history_record_id
+        self._latest_history_payload = data
+
+    def _wait_for_generation_result_by_history(
+        self,
+        timeout_seconds: int,
+        poll_interval_seconds: int,
+    ) -> tuple[bool, str]:
+        deadline = None if timeout_seconds <= 0 else time.time() + max(timeout_seconds, 5)
+        while deadline is None or time.time() < deadline:
+            body_text = self._safe_body_text()
+            if any(keyword in body_text for keyword in LOGIN_REQUIRED_TEXTS):
+                return False, "login_required"
+
+            history_payload = self._fetch_history_by_submit_id(self._latest_submit_id)
+            if history_payload:
+                self._latest_history_payload = history_payload
+                video_url = self._extract_video_url_from_history_payload(history_payload)
+                if video_url:
+                    self._latest_generated_video_src = video_url
+                    return True, "history_video_ready"
+
+                task = history_payload.get("task") or {}
+                task_status = int(task.get("status") or 0)
+                history_status = int(history_payload.get("status") or 0)
+                fail_msg = str(history_payload.get("fail_msg") or "").strip()
+                fail_code = str(history_payload.get("fail_code") or "").strip()
+
+                if task_status == HISTORY_FAILED_TASK_STATUS or history_status == HISTORY_FAILED_STATUS or fail_msg:
+                    detail = fail_msg or fail_code or f"task_status_{task_status}"
+                    return False, f"history_failed:{detail}"
+
+                if task_status == HISTORY_SUCCESS_TASK_STATUS and history_payload.get("item_list"):
+                    return True, "history_video_ready"
+
+            time.sleep(max(poll_interval_seconds, 1))
+
+        return False, "timeout"
+
+    def _fetch_history_by_submit_id(self, submit_id: str) -> dict[str, object] | None:
+        if not submit_id.strip():
+            return None
+
+        try:
+            payload = self._page.evaluate(
+                """async (submitId) => {
+                    const response = await fetch('/mweb/v1/get_history_by_ids?aid=513695', {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({ submit_ids: [submitId] }),
+                    });
+                    return await response.json();
+                }""",
+                submit_id,
+            )
+        except Exception:
+            return None
+
+        if not isinstance(payload, dict):
+            return None
+        data = payload.get("data", {})
+        if not isinstance(data, dict):
+            return None
+        history_payload = data.get(submit_id)
+        return history_payload if isinstance(history_payload, dict) else None
+
+    def _extract_video_url_from_history_payload(self, history_payload: dict[str, object] | None) -> str:
+        if not isinstance(history_payload, dict):
+            return ""
+
+        item_list = history_payload.get("item_list")
+        if not isinstance(item_list, list):
+            return ""
+
+        for item in item_list:
+            if not isinstance(item, dict):
+                continue
+            video = item.get("video")
+            if not isinstance(video, dict):
+                continue
+            transcoded = video.get("transcoded_video")
+            if not isinstance(transcoded, dict):
+                continue
+            for definition in ("720p", "origin", "480p", "360p"):
+                candidate = transcoded.get(definition)
+                if not isinstance(candidate, dict):
+                    continue
+                url = str(candidate.get("video_url") or "").strip()
+                if url.startswith("http"):
+                    return url
+        return ""
+
+    def _try_download_history_video(self, output_path: Path) -> bool:
+        video_url = self._extract_video_url_from_history_payload(self._latest_history_payload)
+        if not video_url.startswith("http"):
+            return False
+        self._latest_generated_video_src = video_url
+        try:
+            urllib.request.urlretrieve(video_url, output_path.resolve())
+            return True
+        except Exception:
+            return False
+
     def _is_generate_page(self, selectors: JimengSelectors) -> bool:
+        if "ai-tool/home" in self._page.url:
+            return False
+
+        if "ai-tool/generate" in self._page.url:
+            return True
+
+        strong_marker = self._first_visible_locator(GENERATE_PAGE_STRONG_MARKERS, timeout_ms=1200)
+        if strong_marker is not None:
+            return True
+
         prompt_locator = self._first_visible_locator(self._configured_prompt_markers(selectors))
         if prompt_locator is None:
             return False
 
-        file_input_locator = self._first_attached_locator(
-            self._configured_reference_markers(selectors),
-            timeout_ms=1500,
-        )
-        if file_input_locator is not None:
-            return True
-
         body_text = self._safe_body_text()
-        return "全能参考" in body_text or "Seedance 2.0" in body_text
+        return "创建新会话" in body_text and "全能参考" in body_text
 
     def _configured_prompt_markers(self, selectors: JimengSelectors) -> tuple[str, ...]:
         return selectors.prompt_inputs + selectors.page_ready_markers
@@ -486,10 +931,28 @@ class JimengWebOperator:
         self.logger.info("主提示词填写状态: %s", "成功" if success else "失败")
         return success
 
+    def select_model(self, model_name: str) -> bool:
+        if not model_name.strip():
+            return False
+
+        self.logger.info("尝试切换即梦模型到: %s", model_name)
+        success = self._ensure_session().select_model(model_name)
+        self.logger.info("模型切换状态: %s", "成功" if success else "失败")
+        return success
+
     def fill_negative_prompt(self, prompt_negative: str) -> bool:
         self.logger.info("尝试填写负向提示词。")
         success = self._ensure_session().fill_negative_prompt(_sanitize_prompt_for_jimeng(prompt_negative))
         self.logger.info("负向提示词填写状态: %s", "成功" if success else "未填写")
+        return success
+
+    def select_duration_seconds(self, duration_seconds: int) -> bool:
+        if duration_seconds <= 0:
+            return True
+
+        self.logger.info("Switching Jimeng duration to %ss", duration_seconds)
+        success = self._ensure_session().select_duration_seconds(duration_seconds)
+        self.logger.info("Jimeng duration switch status: %s", "success" if success else "failed")
         return success
 
     def upload_reference_assets(self, reference_file_paths: list[Path]) -> list[str]:
@@ -514,7 +977,9 @@ class JimengWebOperator:
 
     def validate_reference_selection(self, expected_order: list[str]) -> tuple[bool, list[str]]:
         actual_names = self._ensure_session().get_selected_reference_names(self.selectors)
-        success = actual_names[: len(expected_order)] == expected_order
+        normalized_actual = ["".join(name.split()) for name in actual_names]
+        normalized_expected = ["".join(name.split()) for name in expected_order]
+        success = normalized_actual[: len(normalized_expected)] == normalized_expected
         self.logger.info("参考图校验状态: %s", "成功" if success else "失败")
         return success, actual_names
 
@@ -547,13 +1012,23 @@ class JimengWebOperator:
             result.reference_mode_ready = self.ensure_reference_mode()
             messages.append("全能参考模式检查已执行。")
 
+            if request.duration_seconds > 0:
+                if not self.select_duration_seconds(request.duration_seconds):
+                    return self._fail_result(
+                        result,
+                        "select_duration",
+                        f"Failed to switch Jimeng duration to {request.duration_seconds}s",
+                    )
+                messages.append(f"Duration switch attempted: {request.duration_seconds}s")
+
             result.uploaded_reference_names = self.upload_reference_assets(request.reference_file_paths)
             messages.append("参考图上传步骤已执行。")
 
             result.prompt_filled = self.fill_prompt(request.prompt_main)
             messages.append("提示词填写步骤已执行。")
 
-            result.references_selected = self.select_reference_assets(result.uploaded_reference_names)
+            selection_assets = list(request.ref_assets_in_order) if request.ref_assets_in_order else result.uploaded_reference_names
+            result.references_selected = self.select_reference_assets(selection_assets)
             messages.append("参考图选择步骤已执行。")
 
             result.validation_passed, result.selected_reference_names = self.validate_reference_selection(
@@ -585,6 +1060,20 @@ class JimengWebOperator:
             if not result.reference_mode_ready:
                 return self._fail_result(result, "进入模式", "未能进入图生视频 / 全能参考模式。")
 
+            if request.model_name.strip():
+                if not self.select_model(request.model_name):
+                    return self._fail_result(result, "选择模型", f"未能切换到指定模型: {request.model_name}")
+                messages.append(f"模型切换步骤已执行，目标模型: {request.model_name}")
+
+            if request.duration_seconds > 0:
+                if not self.select_duration_seconds(request.duration_seconds):
+                    return self._fail_result(
+                        result,
+                        "选择时长",
+                        f"未能切换到指定时长: {request.duration_seconds}s",
+                    )
+                messages.append(f"时长切换步骤已执行，目标时长: {request.duration_seconds}s")
+
             result.uploaded_reference_names = self.upload_reference_assets(request.reference_file_paths)
             messages.append("参考图上传步骤已执行。")
 
@@ -594,8 +1083,9 @@ class JimengWebOperator:
                 return self._fail_result(result, "填 prompt", "未能填写主提示词。")
 
             expected_reference_order = list(result.uploaded_reference_names)
+            selection_assets = list(request.ref_assets_in_order) if request.ref_assets_in_order else expected_reference_order
             if expected_reference_order:
-                result.references_selected = self.select_reference_assets(expected_reference_order)
+                result.references_selected = self.select_reference_assets(selection_assets)
                 messages.append("参考图选择步骤已执行。")
                 if not result.references_selected:
                     return self._fail_result(result, "选参考图", "未能按顺序完成参考图 @ 选择。")

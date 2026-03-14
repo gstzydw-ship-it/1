@@ -8,8 +8,8 @@ from app.openclaw.models import (
     PromptComposerRequest,
     SceneAnchorImageRequest,
     SceneAnchorImageResponse,
-    SceneFeatureExtractionRequest,
     SceneAnchorReviewRequest,
+    SceneFeatureExtractionRequest,
 )
 from app.openclaw.service import OpenClawService
 from app.openclaw.skills import (
@@ -59,14 +59,15 @@ def test_prompt_templates_exist_and_contain_required_fields() -> None:
 
     assert "Seedance 2.0 / 即梦" in prompt_template
     assert "固定输出字段" in prompt_template
+    assert "角色与参考" in prompt_template
+    assert "分镜（单镜头）" in prompt_template
+    assert "强制要求" in prompt_template
+    assert "最佳承接帧" in prompt_template
     assert "default" in prompt_template
     assert "cinematic" in prompt_template
     assert "continuity_first" in prompt_template
     assert "action_scene" in prompt_template
     assert "character_focus" in prompt_template
-    assert "@参考图" in prompt_template
-    assert "@TransitionFrame" not in prompt_template or "最佳承接帧" in prompt_template
-    assert "最佳承接帧" in prompt_template
 
 
 def test_get_prompt_template_names_contains_all_expected_templates() -> None:
@@ -113,23 +114,31 @@ def test_run_prompt_composer_outputs_stable_fields_and_negative_prompt() -> None
         storyboard_text="林白穿过古城门，迎战逼近的赤焰狼。",
         style_summary="电影感，晨雾氛围",
         selected_assets=_sample_assets(),
-        previous_frame_summary="上一镜头结束时林白面向城门，披风向右后方摆动",
-        continuity_requirements="保持林白服装、发型、视线方向和古城门空间朝向一致",
+        previous_frame_summary="上一镜头结束时林白面向古城门，披风向右后方摆动",
+        continuity_requirements="保持林白服装、发型、视线方向和古城门空间朝向一致。",
     )
 
     response = client.run_prompt_composer(request_model)
 
     assert response.storyboard_id == "sb-002"
     assert response.shot_id == "shot-002"
-    assert response.prompt_main.startswith("主体：林白")
-    assert "动作：林白穿过古城门，迎战逼近的赤焰狼" in response.prompt_main
-    assert "场景：古城门，空间内包含赤焰狼" in response.prompt_main
-    assert "镜头：" in response.prompt_main
-    assert "光影：" in response.prompt_main
-    assert "风格：电影感，晨雾氛围" in response.prompt_main
-    assert "连续性：首要承接参考使用 @TransitionFrame，它是为当前镜头筛选出的最佳承接帧" in response.prompt_main
+    assert response.prompt_main.startswith("生成一条16:9动漫视频")
+    assert "角色与参考：" in response.prompt_main
+    assert "- 承接画面参考：@TransitionFrame" in response.prompt_main
+    assert "- 林白外观参考：CHAR_林白__v1" in response.prompt_main
+    assert "- 古城门场景/构图参考：SCENE_古城门__v1" in response.prompt_main
+    assert "- 赤焰狼外观参考：MON_赤焰狼__v1" in response.prompt_main
+    assert "分镜（单镜头）：" in response.prompt_main
+    assert "林白穿过古城门，迎战逼近的赤焰狼" in response.prompt_main
+    assert "连续性要求：首要承接参考使用 @TransitionFrame，它是为当前镜头筛选出的最佳承接帧" in response.prompt_main
+    assert "强制要求：" in response.prompt_main
     assert response.prompt_negative == PROMPT_NEGATIVE
-    assert response.ref_assets_in_order == ["CHAR_林白__v1", "@TransitionFrame", "MON_赤焰狼__v1", "SCENE_古城门__v1"]
+    assert response.ref_assets_in_order == [
+        "CHAR_林白__v1",
+        "@TransitionFrame",
+        "MON_赤焰狼__v1",
+        "SCENE_古城门__v1",
+    ]
     assert "下一镜头继续优先参考当前为其筛选出的 @TransitionFrame 最佳承接帧" in response.continuity_notes
 
 
@@ -142,7 +151,7 @@ def test_prompt_composer_template_switch_changes_reference_priority_and_text() -
         "style_summary": "国风奇幻",
         "selected_assets": _sample_assets(),
         "previous_frame_summary": "上一镜头里林白刚完成转身",
-        "continuity_requirements": "保持角色朝向和拔剑动作衔接",
+        "continuity_requirements": "保持角色朝向和拔剑动作衔接。",
     }
 
     default_response = client.run_prompt_composer(PromptComposerRequest(**common, prompt_template="default"))
@@ -212,7 +221,7 @@ def test_build_asset_planner_request_from_catalog(tmp_path: Path) -> None:
                         "type": "scene",
                         "display_name": "古城门",
                         "jimeng_ref_name": "SCENE_古城门__v1",
-                        "files": ["assets/scenes/古城门1.jpg"],
+                        "files": ["assets/scenes/古城门.jpg"],
                         "tags": ["scene", "古城门"],
                     },
                 ],

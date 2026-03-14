@@ -33,6 +33,43 @@ Review the prior shot's ending frame and the proposed next shot against this che
    - Attached or interacting elements keep believable front/back order
    - Leashes, straps, weapons, bags, and hands remain on the correct side
    - Occlusion and tension direction still make physical sense
+8. Narrative priority continuity
+   - Separate missing details into:
+     - `must_keep_story_detail`
+     - `compressible_story_detail`
+     - `optional_flavor_detail`
+   - Missing `must_keep_story_detail` means the shot or sequence is not narratively usable
+   - Missing `compressible_story_detail` is acceptable if the beat still reads clearly
+   - Missing `optional_flavor_detail` should not trigger regeneration by itself
+
+## Story Detail Priority Rules
+
+Treat details as mandatory only when they carry the plot.
+
+`must_keep_story_detail` includes:
+
+- identity reveal that later dialogue depends on
+- who rescued whom
+- whether the rescue succeeded or failed
+- promises, deals, accusations, refusals, or key emotional turns
+- any reveal that motivates the next scene
+
+`compressible_story_detail` includes:
+
+- a non-essential intermediate gesture before dialogue
+- exact posture transitions that do not change the meaning
+- extra reaction beats between two already clear states
+
+`optional_flavor_detail` includes:
+
+- soot wiping, tear wiping, dust brushing, hair adjustment, and similar embellishments when they do not change the beat
+- decorative environmental business
+- descriptive flourish that enriches the moment but is not required for comprehension
+
+Use this rule in practice:
+
+- If the audience can still understand the same plot beat, the same relationship state, and the same next-line logic, the omitted detail is probably not mandatory.
+- If the omitted detail breaks why the next line happens, it was mandatory.
 
 ## Crop Rules
 
@@ -88,6 +125,7 @@ Bad next shot:
 
 Why it fails:
 - The image may be attractive, but it reads as a reset, not a cut from the previous shot.
+- It may also waste regeneration budget on visual polish while still missing a required story beat.
 
 ## Better Example
 
@@ -109,3 +147,4 @@ Better next shot:
 
 Why it works:
 - It feels like coverage of the same moment rather than a newly invented isolated still.
+- It preserves the details that matter to the next beat while allowing non-essential flourish to simplify.
