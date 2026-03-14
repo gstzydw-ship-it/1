@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shlex
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
+import uuid
 import webbrowser
 from datetime import datetime
 from http import HTTPStatus
@@ -22,6 +25,12 @@ WSL_DISTRO = "Ubuntu"
 AGENT_ID = "video-agent-system"
 GATEWAY_PORT = 18789
 DASHBOARD_URL = f"http://127.0.0.1:{GATEWAY_PORT}/"
+OPENCLAW_PS1 = ROOT / "scripts" / "openclaw.ps1"
+TASK_HISTORY_PATH = ROOT / "data" / "openclaw_task_history.jsonl"
+
+TASKS_LOCK = threading.Lock()
+TASKS: dict[str, dict[str, Any]] = {}
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
 def to_wsl_path(path: Path) -> str:
@@ -33,19 +42,24 @@ def to_wsl_path(path: Path) -> str:
 
 ROOT_WSL = to_wsl_path(ROOT)
 OPENCLAW_WSL_SCRIPT = f"{ROOT_WSL}/scripts/openclaw-wsl.sh"
-OPENCLAW_PS1 = ROOT / "scripts" / "openclaw.ps1"
-TASK_HISTORY_PATH = ROOT / "data" / "openclaw_task_history.jsonl"
+
+
+def now_text() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def clean_process_output(text: str) -> str:
     if not text:
         return ""
 
-    normalized = text.replace("\x00", "")
+    normalized = ANSI_ESCAPE_RE.sub("", text.replace("\x00", ""))
     kept: list[str] = []
     for line in normalized.splitlines():
         lowered = line.strip().lower()
-        if "localhost" in lowered and ("wsl" in lowered or "nat" in lowered):
+        ascii_only = "".join(char for char in lowered if ord(char) < 128)
+        if "localhost" in ascii_only and ("wsl" in ascii_only or "nat" in ascii_only):
+            continue
+        if "wsl" in ascii_only and "nat" in ascii_only:
             continue
         kept.append(line.rstrip())
     return "\n".join(kept).strip()
@@ -70,10 +84,14 @@ def run_process(command: list[str], *, cwd: Path | None = None, timeout: int = 1
     }
 
 
-def run_wsl_openclaw(args: list[str], *, timeout: int = 120) -> dict[str, Any]:
+def build_wsl_openclaw_command(args: list[str]) -> list[str]:
     arg_text = " ".join(shlex.quote(item) for item in args)
     bash_script = f"cd {shlex.quote(ROOT_WSL)} && {shlex.quote(OPENCLAW_WSL_SCRIPT)} {arg_text}".strip()
-    return run_process(["wsl", "-d", WSL_DISTRO, "--", "bash", "-lc", bash_script], timeout=timeout)
+    return ["wsl", "-d", WSL_DISTRO, "--", "bash", "-lc", bash_script]
+
+
+def run_wsl_openclaw(args: list[str], *, timeout: int = 120) -> dict[str, Any]:
+    return run_process(build_wsl_openclaw_command(args), timeout=timeout)
 
 
 def run_windows_openclaw(args: list[str], *, timeout: int = 120) -> dict[str, Any]:
@@ -126,7 +144,7 @@ def summarize_text(text: str, *, limit: int = 180) -> str:
     cleaned = " ".join((text or "").split())
     if len(cleaned) <= limit:
         return cleaned
-    return f"{cleaned[: limit - 1].rstrip()}…"
+    return f"{cleaned[: limit - 1].rstrip()}..."
 
 
 def append_task_history(entry: dict[str, Any]) -> None:
@@ -284,18 +302,90 @@ def get_openclaw_summary() -> dict[str, Any]:
     }
 
 
+def terminal_status(status: str) -> bool:
+    return status in {"succeeded", "failed"}
+
+
+def compute_elapsed_seconds(task: dict[str, Any]) -> int:
+    start_ts = task.get("started_ts") or task.get("created_ts")
+    end_ts = task.get("ended_ts") or time.time()
+    if not isinstance(start_ts, (int, float)) or not isinstance(end_ts, (int, float)):
+        return 0
+    return max(0, int(end_ts - start_ts))
+
+
+def public_task(task: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": task["id"],
+        "message": task["message"],
+        "status": task["status"],
+        "status_label": task["status_label"],
+        "created_at": task["created_at"],
+        "started_at": task.get("started_at"),
+        "ended_at": task.get("ended_at"),
+        "stage": task.get("stage", ""),
+        "ok": task.get("ok"),
+        "returncode": task.get("returncode"),
+        "summary": task.get("summary", ""),
+        "reply_preview": task.get("reply_preview", ""),
+        "reply_text": task.get("reply_text", ""),
+        "stderr": task.get("stderr", ""),
+        "stdout_tail": task.get("stdout_tail", ""),
+        "elapsed_seconds": compute_elapsed_seconds(task),
+    }
+
+
+def set_task_state(task_id: str, **changes: Any) -> dict[str, Any]:
+    with TASKS_LOCK:
+        task = TASKS[task_id]
+        task.update(changes)
+        return public_task(task)
+
+
+def get_task(task_id: str) -> dict[str, Any] | None:
+    with TASKS_LOCK:
+        task = TASKS.get(task_id)
+        return public_task(task) if task else None
+
+
+def list_active_tasks() -> list[dict[str, Any]]:
+    with TASKS_LOCK:
+        active = [public_task(task) for task in TASKS.values() if not terminal_status(task["status"])]
+    active.sort(key=lambda item: item["created_at"], reverse=True)
+    return active
+
+
+def latest_reply_task() -> dict[str, Any] | None:
+    active_candidates = []
+    with TASKS_LOCK:
+        for task in TASKS.values():
+            if task.get("reply_text"):
+                active_candidates.append(task.copy())
+
+    active_candidates.sort(key=lambda item: item.get("ended_ts") or item.get("started_ts") or item["created_ts"], reverse=True)
+    if active_candidates:
+        return public_task(active_candidates[0])
+
+    for item in read_task_history(limit=20):
+        if item.get("reply_text"):
+            return item
+    return None
+
+
 def build_status() -> dict[str, Any]:
     return {
         "project_root": str(ROOT),
         "workspace_path": str(ROOT / ".openclaw-workspace"),
         "git": get_git_summary(),
         "openclaw": get_openclaw_summary(),
+        "active_tasks": list_active_tasks(),
+        "latest_reply_task": latest_reply_task(),
         "recent_tasks": read_task_history(),
         "recent_videos": list_recent_videos(),
         "commands": [
             "powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 status",
             "powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 dashboard --no-open",
-            'powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 agent --local --agent video-agent-system --message "\u68c0\u67e5\u5f53\u524d\u5373\u68a6\u5de5\u4f5c\u6d41" --json',
+            'powershell -ExecutionPolicy Bypass -File scripts/openclaw.ps1 agent --local --agent video-agent-system --message "检查当前即梦工作流" --json',
             "powershell -ExecutionPolicy Bypass -File scripts/openclaw-ui.ps1",
             "python -m app.cli doctor",
             "python -m app.cli test-prompt-composer",
@@ -370,31 +460,119 @@ def run_action(name: str) -> dict[str, Any]:
     raise KeyError(name)
 
 
-def run_agent_prompt(message: str) -> dict[str, Any]:
-    result = run_wsl_openclaw(
-        ["agent", "--local", "--agent", AGENT_ID, "--message", message, "--json"],
-        timeout=600,
-    )
-    payload = extract_last_json_blob(result["stdout"])
-    reply_text = extract_agent_text(payload)
+def store_completed_task(task_id: str, *, payload: Any, reply_text: str) -> None:
+    task = get_task(task_id)
+    if not task:
+        return
+
     history_entry = {
-        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "message": message,
-        "ok": result["ok"],
-        "returncode": result["returncode"],
-        "summary": summarize_text(reply_text or result["stderr"] or result["stdout"] or "No reply captured."),
-        "reply_preview": summarize_text(reply_text, limit=320),
-    }
-    append_task_history(history_entry)
-    return {
-        "action": "agent_prompt",
-        "ok": result["ok"],
-        "returncode": result["returncode"],
-        "stdout": result["stdout"],
-        "stderr": result["stderr"],
-        "command": result["command"],
+        "id": task["id"],
+        "created_at": task["created_at"],
+        "started_at": task.get("started_at"),
+        "ended_at": task.get("ended_at"),
+        "message": task["message"],
+        "status": task["status"],
+        "status_label": task["status_label"],
+        "ok": task.get("ok"),
+        "returncode": task.get("returncode"),
+        "stage": task.get("stage", ""),
+        "summary": task.get("summary", ""),
+        "reply_preview": task.get("reply_preview", ""),
+        "reply_text": reply_text,
+        "stderr": task.get("stderr", ""),
+        "stdout_tail": task.get("stdout_tail", ""),
+        "elapsed_seconds": task.get("elapsed_seconds", 0),
         "payload": payload,
     }
+    append_task_history(history_entry)
+
+
+def run_agent_task(task_id: str) -> None:
+    task = get_task(task_id)
+    if not task:
+        return
+
+    set_task_state(
+        task_id,
+        status="running",
+        status_label="运行中",
+        started_at=now_text(),
+        started_ts=time.time(),
+        stage="任务已提交给 OpenClaw，正在等待 Agent 回复。",
+    )
+
+    try:
+        result = run_wsl_openclaw(
+            ["agent", "--local", "--agent", AGENT_ID, "--message", task["message"], "--json"],
+            timeout=600,
+        )
+        payload = extract_last_json_blob(result["stdout"])
+        reply_text = extract_agent_text(payload)
+        stage = "任务已完成。" if result["ok"] else "任务执行失败。"
+        summary_source = reply_text or result["stderr"] or result["stdout"] or "No reply captured."
+        set_task_state(
+            task_id,
+            status="succeeded" if result["ok"] else "failed",
+            status_label="已完成" if result["ok"] else "失败",
+            ended_at=now_text(),
+            ended_ts=time.time(),
+            stage=stage,
+            ok=result["ok"],
+            returncode=result["returncode"],
+            summary=summarize_text(summary_source),
+            reply_preview=summarize_text(reply_text, limit=320),
+            reply_text=reply_text,
+            stderr=result["stderr"],
+            stdout_tail=summarize_text(result["stdout"], limit=800),
+        )
+        store_completed_task(task_id, payload=payload, reply_text=reply_text)
+    except Exception as exc:  # noqa: BLE001
+        set_task_state(
+            task_id,
+            status="failed",
+            status_label="失败",
+            ended_at=now_text(),
+            ended_ts=time.time(),
+            stage="任务执行异常。",
+            ok=False,
+            returncode=-1,
+            summary=summarize_text(str(exc)),
+            stderr=str(exc),
+            stdout_tail="",
+            reply_preview="",
+            reply_text="",
+        )
+        store_completed_task(task_id, payload=None, reply_text="")
+
+
+def start_agent_task(message: str) -> dict[str, Any]:
+    task_id = uuid.uuid4().hex[:10]
+    created_ts = time.time()
+    with TASKS_LOCK:
+        TASKS[task_id] = {
+            "id": task_id,
+            "message": message,
+            "status": "queued",
+            "status_label": "已提交",
+            "created_at": now_text(),
+            "created_ts": created_ts,
+            "started_at": None,
+            "started_ts": None,
+            "ended_at": None,
+            "ended_ts": None,
+            "stage": "任务已提交，准备启动 OpenClaw CLI。",
+            "ok": None,
+            "returncode": None,
+            "summary": "任务刚刚提交，正在排队启动。",
+            "reply_preview": "",
+            "reply_text": "",
+            "stderr": "",
+            "stdout_tail": "",
+        }
+
+    worker = threading.Thread(target=run_agent_task, args=(task_id,), daemon=True)
+    worker.start()
+    return public_task(TASKS[task_id])
 
 
 class ControlHandler(SimpleHTTPRequestHandler):
@@ -406,6 +584,14 @@ class ControlHandler(SimpleHTTPRequestHandler):
             parsed = urlparse(self.path)
             if parsed.path == "/api/status":
                 self._send_json(build_status())
+                return
+            if parsed.path.startswith("/api/task/"):
+                task_id = parsed.path.rsplit("/", 1)[-1].strip()
+                task = get_task(task_id)
+                if not task:
+                    self._send_json({"ok": False, "error": f"Task not found: {task_id}"}, status=HTTPStatus.NOT_FOUND)
+                    return
+                self._send_json({"ok": True, "task": task})
                 return
             if parsed.path == "/favicon.ico":
                 self.path = "/favicon.svg"
@@ -445,7 +631,15 @@ class ControlHandler(SimpleHTTPRequestHandler):
                 if not message:
                     self._send_json({"ok": False, "error": "Message is required."}, status=HTTPStatus.BAD_REQUEST)
                     return
-                self._send_json(run_agent_prompt(message))
+                task = start_agent_task(message)
+                self._send_json(
+                    {
+                        "action": "agent_prompt",
+                        "ok": True,
+                        "message": "Task accepted and running in the background.",
+                        "task": task,
+                    }
+                )
                 return
 
             self._send_json({"ok": False, "error": "Not found."}, status=HTTPStatus.NOT_FOUND)
@@ -456,7 +650,6 @@ class ControlHandler(SimpleHTTPRequestHandler):
         return
 
     def end_headers(self) -> None:
-        # Keep the local console UI fresh so browser tabs do not stick to stale JS/CSS.
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
